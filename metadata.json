@@ -1,0 +1,6 @@
+{
+  "name": "fif-card",
+  "description": "Lightweight offline football lineup and customizable FIFPro-inspired player card builder with match mode, formations, and local music bar.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
