@@ -76,7 +76,6 @@ import com.example.i18n.LocalAppStrings
 import com.example.model.AppLanguage
 import com.example.model.AvatarGender
 import com.example.model.ClubCatalog
-import com.example.model.NationalityCatalog
 import com.example.model.PlayingLine
 import com.example.model.PositionCode
 import com.example.model.PreferredFoot
@@ -119,45 +118,8 @@ fun PlayerDetailSheet(
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.Top
             ) {
-                // Vertical Rectangular Card Portrait
-                Box(
-                    modifier = Modifier
-                        .size(width = 78.dp, height = 108.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .border(2.5.dp, lineColor, RoundedCornerShape(12.dp))
-                ) {
-                    PlayerPortrait(
-                        customImageUri = player.customImageUri,
-                        avatarGender = AvatarGender.fromName(player.avatarGender),
-                        contentDescription = player.name,
-                        modifier = Modifier.matchParentSize()
-                    )
-                    if (player.extraPositionList.isNotEmpty()) {
-                        Column(
-                            modifier = Modifier
-                                .align(Alignment.CenterStart)
-                                .padding(start = 3.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            player.extraPositionList.forEach { extra ->
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(Color.Black.copy(alpha = 0.78f))
-                                        .border(1.dp, extra.line.color, RoundedCornerShape(4.dp))
-                                        .padding(horizontal = 3.dp)
-                                ) {
-                                    Text(extra.code, color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(12.dp))
-
                 Column(modifier = Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         PositionRoleLogo(line = player.mainLine, tint = lineColor, size = 16.dp)
@@ -176,6 +138,23 @@ fun PlayerDetailSheet(
                             fontSize = 18.sp
                         )
                     }
+                    if (player.extraPositionList.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            player.extraPositionList.forEach { extra ->
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(cs.surfaceVariant)
+                                        .border(1.dp, extra.line.color, RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 5.dp, vertical = 1.dp)
+                                ) {
+                                    Text(extra.code, color = cs.onSurface, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = player.name,
                         style = MaterialTheme.typography.headlineSmall,
@@ -189,17 +168,20 @@ fun PlayerDetailSheet(
                         )
                     }
                     Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "${strings.nationalityLabel}: ${player.nationality}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = cs.onBackground
+                    )
+                    Spacer(modifier = Modifier.height(3.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(text = player.flagEmoji, fontSize = 15.sp)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(player.nationality, style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
-                        Spacer(modifier = Modifier.width(8.dp))
                         ClubCrestBadge(
                             clubName = player.club,
                             customClubLogoUri = player.customClubLogoUri,
                             size = 16.dp
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
+                        Spacer(modifier = Modifier.width(5.dp))
                         Text(player.club, style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
                     }
                     Spacer(modifier = Modifier.height(4.dp))
@@ -214,6 +196,19 @@ fun PlayerDetailSheet(
                         color = cs.onSurfaceVariant
                     )
                 }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                // Vertical Long Rectangle Portrait on Top Right
+                PlayerPortrait(
+                    customImageUri = player.customImageUri,
+                    avatarGender = AvatarGender.fromName(player.avatarGender),
+                    contentDescription = player.name,
+                    modifier = Modifier
+                        .size(width = 74.dp, height = 114.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .border(2.5.dp, lineColor, RoundedCornerShape(12.dp))
+                )
             }
 
             // Position-Based Powers
@@ -349,7 +344,6 @@ fun PlayerEditorDialog(
     var name by remember { mutableStateOf(initialPlayer.name) }
     var nickname by remember { mutableStateOf(initialPlayer.nickname) }
     var nationality by remember { mutableStateOf(initialPlayer.nationality) }
-    var flagEmoji by remember { mutableStateOf(initialPlayer.flagEmoji) }
     var club by remember { mutableStateOf(initialPlayer.club) }
     var league by remember { mutableStateOf(initialPlayer.league) }
     var mainPos by remember { mutableStateOf(initialPlayer.mainPositionCode) }
@@ -376,7 +370,6 @@ fun PlayerEditorDialog(
     var powerMid by remember { mutableIntStateOf(initialPlayer.powerMid) }
     var powerAtt by remember { mutableIntStateOf(initialPlayer.powerAtt) }
 
-    var showNationDropdown by remember { mutableStateOf(false) }
     var showClubDropdown by remember { mutableStateOf(false) }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -491,31 +484,16 @@ fun PlayerEditorDialog(
                         .testTag("editor_nickname_input")
                 )
 
-                // Nationality Picker
-                Box {
-                    OutlinedButton(
-                        onClick = { showNationDropdown = true },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("${strings.nationalityLabel}: $flagEmoji $nationality")
-                    }
-                    DropdownMenu(
-                        expanded = showNationDropdown,
-                        onDismissRequest = { showNationDropdown = false },
-                        modifier = Modifier.height(260.dp)
-                    ) {
-                        NationalityCatalog.all.forEach { n ->
-                            DropdownMenuItem(
-                                text = { Text("${n.flag} ${n.nameEn}") },
-                                onClick = {
-                                    nationality = n.nameEn
-                                    flagEmoji = n.flag
-                                    showNationDropdown = false
-                                }
-                            )
-                        }
-                    }
-                }
+                // Nationality Written by Letter (no flag dropdown)
+                OutlinedTextField(
+                    value = nationality,
+                    onValueChange = { nationality = it },
+                    label = { Text(strings.nationalityLabel) },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("editor_nationality_input")
+                )
 
                 // Club & League Quick Picker + Custom Text + Custom Club Logo from Internal Storage
                 Box {
@@ -711,8 +689,8 @@ fun PlayerEditorDialog(
                                 initialPlayer.copy(
                                     name = cleanName,
                                     nickname = nickname.trim(),
-                                    nationality = nationality,
-                                    flagEmoji = flagEmoji,
+                                    nationality = nationality.trim().ifEmpty { "Custom" },
+                                    flagEmoji = "",
                                     club = club.trim().ifEmpty { "FC" },
                                     league = league.trim().ifEmpty { "Custom" },
                                     mainPosition = mainPos.code,
@@ -962,9 +940,7 @@ fun CoachEditorDialog(
     val cs = MaterialTheme.colorScheme
     var name by remember { mutableStateOf(coach.name) }
     var nationality by remember { mutableStateOf(coach.nationality) }
-    var flagEmoji by remember { mutableStateOf(coach.flagEmoji) }
     var customImageUri by remember { mutableStateOf(coach.customImageUri) }
-    var showNationMenu by remember { mutableStateOf(false) }
 
     val photoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -1012,30 +988,15 @@ fun CoachEditorDialog(
                         .fillMaxWidth()
                         .testTag("coach_name_input")
                 )
-                Box {
-                    OutlinedButton(
-                        onClick = { showNationMenu = true },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("${strings.nationalityLabel}: $flagEmoji $nationality")
-                    }
-                    DropdownMenu(
-                        expanded = showNationMenu,
-                        onDismissRequest = { showNationMenu = false },
-                        modifier = Modifier.height(260.dp)
-                    ) {
-                        NationalityCatalog.all.forEach { n ->
-                            DropdownMenuItem(
-                                text = { Text("${n.flag} ${n.nameEn}") },
-                                onClick = {
-                                    nationality = n.nameEn
-                                    flagEmoji = n.flag
-                                    showNationMenu = false
-                                }
-                            )
-                        }
-                    }
-                }
+                OutlinedTextField(
+                    value = nationality,
+                    onValueChange = { nationality = it },
+                    label = { Text(strings.nationalityLabel) },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("coach_nationality_input")
+                )
             }
         },
         confirmButton = {
@@ -1044,8 +1005,8 @@ fun CoachEditorDialog(
                     onSave(
                         coach.copy(
                             name = name.trim().ifEmpty { "Coach" },
-                            nationality = nationality,
-                            flagEmoji = flagEmoji,
+                            nationality = nationality.trim().ifEmpty { "Custom" },
+                            flagEmoji = "",
                             customImageUri = customImageUri
                         )
                     )

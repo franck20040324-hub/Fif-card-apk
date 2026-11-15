@@ -298,15 +298,19 @@ fun PlayerPickerSheet(
                             .testTag("picker_player_${player.id}"),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        PlayerPortrait(
-                            customImageUri = player.customImageUri,
-                            avatarGender = AvatarGender.fromName(player.avatarGender),
-                            contentDescription = player.name,
+                        Box(
                             modifier = Modifier
-                                .size(48.dp)
                                 .clip(RoundedCornerShape(8.dp))
-                                .border(1.5.dp, lineColor, RoundedCornerShape(8.dp))
-                        )
+                                .background(targetSlot.slotPosition.line.color)
+                                .padding(horizontal = 9.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = slotPower.toString(),
+                                color = if (targetSlot.slotPosition.line == PlayingLine.MID) Color.Black else Color.White,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 15.sp
+                            )
+                        }
                         Spacer(modifier = Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -328,8 +332,17 @@ fun PlayerPickerSheet(
                                 )
                             }
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(text = player.flagEmoji, fontSize = 12.sp)
-                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = player.nationality,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = cs.onSurface
+                                )
+                                Text(
+                                    text = " • ",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = cs.onSurfaceVariant
+                                )
                                 ClubCrestBadge(
                                     clubName = player.club,
                                     customClubLogoUri = player.customClubLogoUri,
@@ -345,19 +358,16 @@ fun PlayerPickerSheet(
                                 )
                             }
                         }
-                        Box(
+                        Spacer(modifier = Modifier.width(8.dp))
+                        PlayerPortrait(
+                            customImageUri = player.customImageUri,
+                            avatarGender = AvatarGender.fromName(player.avatarGender),
+                            contentDescription = player.name,
                             modifier = Modifier
+                                .size(width = 40.dp, height = 60.dp)
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(targetSlot.slotPosition.line.color)
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Text(
-                                text = slotPower.toString(),
-                                color = if (targetSlot.slotPosition.line == PlayingLine.MID) Color.Black else Color.White,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 15.sp
-                            )
-                        }
+                                .border(1.5.dp, lineColor, RoundedCornerShape(8.dp))
+                        )
                     }
                 }
             }

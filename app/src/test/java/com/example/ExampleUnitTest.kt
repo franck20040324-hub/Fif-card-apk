@@ -40,8 +40,8 @@ class ExampleUnitTest {
 
         val customCard = PlayerEntity(
             name = "Custom Star",
-            nationality = "Spain",
-            flagEmoji = "🇪🇸",
+            nationality = "Morocco",
+            flagEmoji = "",
             club = "Custom FC",
             league = "Custom",
             mainPosition = "CAM",
@@ -51,6 +51,7 @@ class ExampleUnitTest {
             tackling = 62,
             isBuiltIn = false
         )
+        assertEquals("Morocco", customCard.nationality)
         assertEquals(95, customCard.restoredFromSnapshot().powerForLine(PlayingLine.MID))
     }
 }

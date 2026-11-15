@@ -43,14 +43,14 @@ class FifCardRepository(
                         teamSide = TeamSide.HOME.name,
                         name = "Manager Home",
                         nationality = "Spain",
-                        flagEmoji = "🇪🇸",
+                        flagEmoji = "",
                         customImageUri = null
                     ),
                     CoachEntity(
                         teamSide = TeamSide.AWAY.name,
                         name = "Manager Away",
                         nationality = "France",
-                        flagEmoji = "🇫🇷",
+                        flagEmoji = "",
                         customImageUri = null
                     )
                 )

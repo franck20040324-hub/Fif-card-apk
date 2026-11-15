@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -56,7 +57,7 @@ import com.example.model.PlayingLine
 import com.example.model.PositionCode
 import com.example.ui.theme.FifOrange
 
-const val VERTICAL_CARD_RATIO = 0.72f // width / height -> height ≈ 1.39 * width
+const val VERTICAL_CARD_RATIO = 0.68f // width / height -> tall vertical card
 
 @Composable
 fun PlayerPortrait(
@@ -204,8 +205,9 @@ fun ClubCrestBadge(
 
 /**
  * Vertical rectangular pitch player card with playing-line border color,
- * main position + neutral role logo, left-edge extra positions, dynamic position power,
- * nationality flag, club crest, and player name/nickname.
+ * unobstructed vertical long-rectangle portrait on the top right,
+ * tactical power/position/extra-positions column on the left,
+ * and written nationality + club crest + name at the bottom.
  */
 @Composable
 fun VerticalPitchPlayerCard(
@@ -231,135 +233,139 @@ fun VerticalPitchPlayerCard(
     val cs = MaterialTheme.colorScheme
     val compact = cardWidth < 46.dp
 
-    Box(
+    Column(
         modifier = modifier
             .size(width = cardWidth, height = cardHeight)
             .clip(RoundedCornerShape(8.dp))
             .background(cs.surface)
             .border(borderWidth, borderColor, RoundedCornerShape(8.dp))
+            .padding(if (compact) 2.dp else 2.5.dp),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 1.5.dp else 2.dp)
     ) {
-        // Portrait background
-        PlayerPortrait(
-            customImageUri = player.customImageUri,
-            avatarGender = AvatarGender.fromName(player.avatarGender),
-            contentDescription = player.name,
-            modifier = Modifier.fillMaxSize()
-        )
-
-        // Subtle dark readability scrim at top and bottom
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(cardHeight * 0.24f)
-                .align(Alignment.TopCenter)
-                .background(Color.Black.copy(alpha = 0.56f))
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(cardHeight * 0.30f)
-                .align(Alignment.BottomCenter)
-                .background(Color.Black.copy(alpha = 0.80f))
-        )
-
-        // Top row: Main Position + Role Icon (left) and Position Power (right)
+        // Top Zone: Left tactical column + Top-Right vertical long rectangle portrait
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 3.dp, vertical = 2.dp)
-                .align(Alignment.TopCenter),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 1.5.dp else 2.5.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                PositionRoleLogo(
-                    line = slotPosition.line,
-                    tint = lineColor,
-                    size = if (compact) 8.dp else 10.dp
-                )
-                Spacer(modifier = Modifier.width(1.5.dp))
+            // Left tactical column: Power + Main Position + Role Icon + Extra Positions
+            Column(
+                modifier = Modifier
+                    .width(cardWidth * 0.34f)
+                    .fillMaxHeight(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Top
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (isTeamAwayBadge) Color(0xFF0F172A) else lineColor)
+                        .padding(vertical = 1.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = effectivePower.toString(),
+                        color = if (isTeamAwayBadge || slotPosition.line != PlayingLine.MID) Color.White else Color.Black,
+                        fontSize = if (compact) 8.sp else 9.5.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(1.5.dp))
+
                 Text(
                     text = player.mainPosition,
-                    color = Color.White,
-                    fontSize = if (compact) 7.5.sp else 9.sp,
+                    color = cs.onSurface,
+                    fontSize = if (compact) 6.5.sp else 7.5.sp,
                     fontWeight = FontWeight.ExtraBold,
                     maxLines = 1
                 )
-            }
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(if (isTeamAwayBadge) Color(0xFF0F172A) else lineColor)
-                    .padding(horizontal = 3.dp, vertical = 0.5.dp)
-            ) {
-                Text(
-                    text = effectivePower.toString(),
-                    color = if (isTeamAwayBadge || slotPosition.line != PlayingLine.MID) Color.White else Color.Black,
-                    fontSize = if (compact) 8.sp else 9.5.sp,
-                    fontWeight = FontWeight.ExtraBold
-                )
-            }
-        }
 
-        // Left Edge: Additional Positions
-        if (player.extraPositionList.isNotEmpty() && !compact) {
-            Column(
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .padding(start = 2.dp),
-                verticalArrangement = Arrangement.spacedBy(1.5.dp)
-            ) {
-                player.extraPositionList.take(2).forEach { extra ->
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(Color.Black.copy(alpha = 0.74f))
-                            .border(0.6.dp, extra.line.color, RoundedCornerShape(3.dp))
-                            .padding(horizontal = 2.dp, vertical = 0.5.dp)
-                    ) {
-                        Text(
-                            text = extra.code,
-                            color = Color.White,
-                            fontSize = 6.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                PositionRoleLogo(
+                    line = slotPosition.line,
+                    tint = lineColor,
+                    size = if (compact) 7.dp else 9.dp
+                )
+
+                if (player.extraPositionList.isNotEmpty() && !compact) {
+                    Spacer(modifier = Modifier.height(1.5.dp))
+                    player.extraPositionList.take(2).forEach { extra ->
+                        Box(
+                            modifier = Modifier
+                                .padding(top = 1.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(cs.surfaceVariant)
+                                .border(0.6.dp, extra.line.color, RoundedCornerShape(3.dp))
+                                .padding(horizontal = 2.dp, vertical = 0.5.dp)
+                        ) {
+                            Text(
+                                text = extra.code,
+                                color = cs.onSurface,
+                                fontSize = 5.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
+                            )
+                        }
                     }
                 }
             }
+
+            // Top-Right Vertical Long Rectangle Portrait (completely unobstructed)
+            PlayerPortrait(
+                customImageUri = player.customImageUri,
+                avatarGender = AvatarGender.fromName(player.avatarGender),
+                contentDescription = player.name,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(5.dp))
+                    .border(1.dp, lineColor.copy(alpha = 0.75f), RoundedCornerShape(5.dp))
+            )
         }
 
-        // Bottom info: Flag + Club Crest + Short Name
+        // Bottom info strip: Player Name + Written Nationality + Club Crest
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = 2.dp, vertical = 2.dp),
+                .clip(RoundedCornerShape(4.dp))
+                .background(cs.surfaceVariant.copy(alpha = 0.85f))
+                .padding(horizontal = 2.dp, vertical = if (compact) 1.dp else 1.5.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(3.dp)
-            ) {
-                Text(
-                    text = player.flagEmoji,
-                    fontSize = if (compact) 8.sp else 10.sp
-                )
-                ClubCrestBadge(
-                    clubName = player.club,
-                    customClubLogoUri = player.customClubLogoUri,
-                    size = if (compact) 10.dp else 13.dp
-                )
-            }
             Text(
                 text = player.nickname.ifBlank { player.name.substringAfterLast(" ") },
-                color = Color.White,
-                fontSize = if (compact) 7.5.sp else 9.sp,
-                fontWeight = FontWeight.Bold,
+                color = cs.onSurface,
+                fontSize = if (compact) 7.sp else 8.5.sp,
+                fontWeight = FontWeight.ExtraBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = player.nationality,
+                    color = cs.onSurfaceVariant,
+                    fontSize = if (compact) 5.5.sp else 6.8.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                Spacer(modifier = Modifier.width(2.dp))
+                ClubCrestBadge(
+                    clubName = player.club,
+                    customClubLogoUri = player.customClubLogoUri,
+                    size = if (compact) 8.dp else 10.dp
+                )
+            }
         }
     }
 }
@@ -439,21 +445,22 @@ fun CoachPitchCard(
                     fontSize = 8.sp,
                     fontWeight = FontWeight.ExtraBold
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = coach.flagEmoji,
-                        fontSize = 11.sp
-                    )
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Text(
-                        text = coach.name,
-                        color = cs.onSurface,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+                Text(
+                    text = coach.name,
+                    color = cs.onSurface,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = coach.nationality,
+                    color = cs.onSurfaceVariant,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }
@@ -461,6 +468,8 @@ fun CoachPitchCard(
 
 /**
  * Vertical rectangular player card for the Players Library Grid view.
+ * Places the portrait as an unobstructed vertical long rectangle in the top-right,
+ * with written nationality (no flags).
  */
 @Composable
 fun LibraryPlayerCardGrid(
@@ -480,112 +489,115 @@ fun LibraryPlayerCardGrid(
             .background(cs.surface)
             .border(2.5.dp, lineColor, RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
-            .testTag("player_grid_card_${player.id}")
+            .padding(6.dp)
+            .testTag("player_grid_card_${player.id}"),
+        verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        Box(
+        // Top Area: Tactical Stats/Positions on left + Vertical Long Rectangle Portrait on top right
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
+                .weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth(0.35f)
+                    .fillMaxHeight(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(lineColor)
+                            .padding(vertical = 3.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = player.naturalPower.toString(),
+                            color = if (player.mainLine == PlayingLine.MID) Color.Black else Color.White,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 15.sp
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        PositionRoleLogo(line = player.mainLine, tint = lineColor, size = 12.dp)
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Text(
+                            text = player.mainPosition,
+                            color = cs.onSurface,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 11.sp
+                        )
+                    }
+
+                    if (player.extraPositionList.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            player.extraPositionList.forEach { extra ->
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(cs.surfaceVariant)
+                                        .border(1.dp, extra.line.color, RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                                ) {
+                                    Text(
+                                        text = extra.code,
+                                        color = cs.onSurface,
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (player.isBuiltIn) cs.surfaceVariant else FifOrange)
+                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                ) {
+                    Text(
+                        text = if (player.isBuiltIn) strings.fifproBadge else strings.customBadge,
+                        color = if (player.isBuiltIn) cs.onSurfaceVariant else Color.White,
+                        fontSize = 7.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            // Vertical Long Rectangle Portrait on Top Right
             PlayerPortrait(
                 customImageUri = player.customImageUri,
                 avatarGender = AvatarGender.fromName(player.avatarGender),
                 contentDescription = player.name,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(1.5.dp, lineColor.copy(alpha = 0.8f), RoundedCornerShape(8.dp))
             )
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(30.dp)
-                    .align(Alignment.TopCenter)
-                    .background(Color.Black.copy(alpha = 0.52f))
-            )
-
-            // Main position + role icon
-            Row(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                PositionRoleLogo(line = player.mainLine, tint = lineColor, size = 14.dp)
-                Spacer(modifier = Modifier.width(3.dp))
-                Text(
-                    text = player.mainPosition,
-                    color = Color.White,
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 13.sp
-                )
-            }
-
-            // Natural Power Badge
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(6.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(lineColor)
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
-            ) {
-                Text(
-                    text = player.naturalPower.toString(),
-                    color = if (player.mainLine == PlayingLine.MID) Color.Black else Color.White,
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 13.sp
-                )
-            }
-
-            // Left Edge Extra Positions
-            if (player.extraPositionList.isNotEmpty()) {
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.CenterStart)
-                        .padding(start = 5.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    player.extraPositionList.forEach { extra ->
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(Color.Black.copy(alpha = 0.78f))
-                                .border(1.dp, extra.line.color, RoundedCornerShape(4.dp))
-                                .padding(horizontal = 4.dp, vertical = 1.dp)
-                        ) {
-                            Text(
-                                text = extra.code,
-                                color = Color.White,
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Custom vs FIFPro badge
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(5.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(if (player.isBuiltIn) Color.Black.copy(alpha = 0.68f) else FifOrange)
-                    .padding(horizontal = 4.dp, vertical = 1.dp)
-            ) {
-                Text(
-                    text = if (player.isBuiltIn) strings.fifproBadge else strings.customBadge,
-                    color = Color.White,
-                    fontSize = 8.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
         }
 
+        // Bottom Card Details: Name, Nickname, Written Nationality, Club & Foot
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(cs.surface)
-                .padding(horizontal = 8.dp, vertical = 6.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(cs.surfaceVariant.copy(alpha = 0.65f))
+                .padding(horizontal = 6.dp, vertical = 5.dp)
         ) {
             Text(
                 text = player.name,
@@ -603,37 +615,45 @@ fun LibraryPlayerCardGrid(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Spacer(modifier = Modifier.height(3.dp))
+            Spacer(modifier = Modifier.height(2.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
+                Text(
+                    text = player.nationality,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = cs.onSurface,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
-                ) {
-                    Text(text = player.flagEmoji, fontSize = 13.sp)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    ClubCrestBadge(
-                        clubName = player.club,
-                        customClubLogoUri = player.customClubLogoUri,
-                        size = 15.dp
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = player.club,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = cs.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+                )
                 Text(
                     text = player.preferredFoot,
                     style = MaterialTheme.typography.labelSmall,
                     color = FifOrange,
                     fontSize = 10.sp
+                )
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ClubCrestBadge(
+                    clubName = player.club,
+                    customClubLogoUri = player.customClubLogoUri,
+                    size = 14.dp
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = player.club,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = cs.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -660,52 +680,26 @@ fun LibraryPlayerCardList(
             .testTag("player_list_card_${player.id}"),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Left Vertical Rectangular Card Thumbnail with left-edge extra positions
-        Box(
-            modifier = Modifier
-                .size(width = 52.dp, height = 72.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .border(1.5.dp, lineColor, RoundedCornerShape(8.dp))
-        ) {
-            PlayerPortrait(
-                customImageUri = player.customImageUri,
-                avatarGender = AvatarGender.fromName(player.avatarGender),
-                contentDescription = player.name,
-                modifier = Modifier.fillMaxSize()
-            )
-            if (player.extraPositionList.isNotEmpty()) {
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.CenterStart)
-                        .padding(start = 2.dp),
-                    verticalArrangement = Arrangement.spacedBy(1.dp)
-                ) {
-                    player.extraPositionList.take(2).forEach { extra ->
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(Color.Black.copy(alpha = 0.78f))
-                                .border(0.7.dp, extra.line.color, RoundedCornerShape(3.dp))
-                                .padding(horizontal = 2.dp)
-                        ) {
-                            Text(
-                                text = extra.code,
-                                color = Color.White,
-                                fontSize = 7.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.width(10.dp))
-
+        // Left: Power Badge + Main Position + Info + Written Nationality
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(lineColor)
+                        .padding(horizontal = 7.dp, vertical = 2.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = player.naturalPower.toString(),
+                        color = if (player.mainLine == PlayingLine.MID) Color.Black else Color.White,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 13.sp
+                    )
+                }
+                Spacer(modifier = Modifier.width(6.dp))
                 PositionRoleLogo(line = player.mainLine, tint = lineColor, size = 14.dp)
-                Spacer(modifier = Modifier.width(4.dp))
+                Spacer(modifier = Modifier.width(3.dp))
                 Text(
                     text = player.mainPosition,
                     color = lineColor,
@@ -722,6 +716,30 @@ fun LibraryPlayerCardList(
                     modifier = Modifier.weight(1f, fill = false)
                 )
             }
+
+            if (player.extraPositionList.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(3.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    player.extraPositionList.forEach { extra ->
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(cs.surfaceVariant)
+                                .border(0.8.dp, extra.line.color, RoundedCornerShape(3.dp))
+                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                        ) {
+                            Text(
+                                text = extra.code,
+                                color = cs.onSurface,
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(3.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (player.nickname.isNotBlank()) {
                     Text(
@@ -731,10 +749,11 @@ fun LibraryPlayerCardList(
                     )
                 }
                 Text(
-                    text = "${player.flagEmoji} ${player.nationality}",
+                    text = player.nationality,
                     style = MaterialTheme.typography.bodyMedium,
                     fontSize = 12.sp,
-                    color = cs.onSurfaceVariant,
+                    fontWeight = FontWeight.SemiBold,
+                    color = cs.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -764,21 +783,17 @@ fun LibraryPlayerCardList(
             }
         }
 
-        Spacer(modifier = Modifier.width(8.dp))
+        Spacer(modifier = Modifier.width(10.dp))
 
-        Box(
+        // Top-Right Vertical Long Rectangle Portrait
+        PlayerPortrait(
+            customImageUri = player.customImageUri,
+            avatarGender = AvatarGender.fromName(player.avatarGender),
+            contentDescription = player.name,
             modifier = Modifier
-                .size(width = 38.dp, height = 46.dp)
+                .size(width = 48.dp, height = 74.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(lineColor),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = player.naturalPower.toString(),
-                color = if (player.mainLine == PlayingLine.MID) Color.Black else Color.White,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 16.sp
-            )
-        }
+                .border(1.5.dp, lineColor, RoundedCornerShape(8.dp))
+        )
     }
 }

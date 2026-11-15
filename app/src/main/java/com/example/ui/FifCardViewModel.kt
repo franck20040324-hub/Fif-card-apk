@@ -615,8 +615,8 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
         editingPlayerState.value = PlayerEntity(
             name = "",
             nickname = "",
-            nationality = "Spain",
-            flagEmoji = "🇪🇸",
+            nationality = "",
+            flagEmoji = "",
             club = "Real Madrid",
             league = "La Liga",
             mainPosition = "CM",

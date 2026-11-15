@@ -788,9 +788,9 @@ private fun PitchArea(
 
         // Vertical rectangular card sizing fitted cleanly inside vertical pitch
         val cardWidthDp: Dp = if (isMatchMode) {
-            minOf(maxWidth / 7.8f, maxHeight / 13.0f).coerceIn(32.dp, 48.dp)
+            minOf(maxWidth / 7.8f, maxHeight / 13.5f).coerceIn(32.dp, 46.dp)
         } else {
-            minOf(maxWidth / 5.7f, maxHeight / 8.5f).coerceIn(40.dp, 62.dp)
+            minOf(maxWidth / 5.7f, maxHeight / 8.8f).coerceIn(40.dp, 60.dp)
         }
         val cardHeightDp: Dp = cardWidthDp / VERTICAL_CARD_RATIO
         val density = LocalDensity.current

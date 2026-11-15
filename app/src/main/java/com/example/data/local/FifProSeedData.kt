@@ -1,7 +1,6 @@
 package com.example.data.local
 
 import com.example.model.AvatarGender
-import com.example.model.NationalityCatalog
 import com.example.model.PreferredFoot
 
 object FifProSeedData {
@@ -36,7 +35,7 @@ object FifProSeedData {
             name = name,
             nickname = nickname,
             nationality = nationality,
-            flagEmoji = NationalityCatalog.flagFor(nationality),
+            flagEmoji = "",
             club = club,
             league = league,
             mainPosition = mainPos,
