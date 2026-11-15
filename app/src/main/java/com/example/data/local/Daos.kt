@@ -56,6 +56,21 @@ interface LineupDao {
 
     @Query("UPDATE lineup_slots SET playerId = NULL WHERE playerId = :playerId")
     suspend fun clearPlayerFromAllSlots(playerId: Long)
+
+    @Query("UPDATE lineup_slots SET customX = NULL, customY = NULL WHERE teamSide = :teamSide AND isStarter = 1")
+    suspend fun clearCustomPositionsForTeam(teamSide: String)
+}
+
+@Dao
+interface SavedFormationDao {
+    @Query("SELECT * FROM saved_formations ORDER BY createdAt DESC")
+    fun observeSavedFormations(): Flow<List<SavedFormationEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSavedFormation(formation: SavedFormationEntity): Long
+
+    @Query("DELETE FROM saved_formations WHERE id = :id")
+    suspend fun deleteSavedFormation(id: Long)
 }
 
 @Dao

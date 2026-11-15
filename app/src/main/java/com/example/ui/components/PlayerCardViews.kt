@@ -11,14 +11,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -57,6 +55,8 @@ import com.example.model.ClubCatalog
 import com.example.model.PlayingLine
 import com.example.model.PositionCode
 import com.example.ui.theme.FifOrange
+
+const val VERTICAL_CARD_RATIO = 0.72f // width / height -> height ≈ 1.39 * width
 
 @Composable
 fun PlayerPortrait(
@@ -146,8 +146,25 @@ fun PositionRoleLogo(
 @Composable
 fun ClubCrestBadge(
     clubName: String,
+    customClubLogoUri: String? = null,
     size: Dp = 18.dp
 ) {
+    if (!customClubLogoUri.isNullOrBlank()) {
+        AsyncImage(
+            model = ImageRequest.Builder(LocalContext.current)
+                .data(customClubLogoUri)
+                .size(128)
+                .crossfade(false)
+                .build(),
+            contentDescription = clubName,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(size)
+                .clip(RoundedCornerShape(4.dp))
+        )
+        return
+    }
+
     val visual = ClubCatalog.findClub(clubName)
     Box(
         modifier = Modifier.size(size),
@@ -186,33 +203,37 @@ fun ClubCrestBadge(
 }
 
 /**
- * Square pitch card with playing-line border color, main position + neutral logo,
- * left-edge secondary positions, dynamic position power, flag, club crest, and player name.
+ * Vertical rectangular pitch player card with playing-line border color,
+ * main position + neutral role logo, left-edge extra positions, dynamic position power,
+ * nationality flag, club crest, and player name/nickname.
  */
 @Composable
-fun SquarePitchPlayerCard(
+fun VerticalPitchPlayerCard(
     player: PlayerEntity,
     slotPosition: PositionCode,
-    cardSize: Dp,
+    cardWidth: Dp,
+    cardHeight: Dp,
     isSelected: Boolean,
     isDropTarget: Boolean,
+    isRepositioning: Boolean = false,
     isTeamAwayBadge: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val lineColor = slotPosition.line.color
     val borderColor = when {
+        isRepositioning -> FifOrange
         isDropTarget -> FifOrange
         isSelected -> Color.White
         else -> lineColor
     }
-    val borderWidth = if (isSelected || isDropTarget) 3.dp else 2.2.dp
+    val borderWidth = if (isSelected || isDropTarget || isRepositioning) 3.dp else 2.2.dp
     val effectivePower = player.powerForSlot(slotPosition)
     val cs = MaterialTheme.colorScheme
-    val compact = cardSize < 56.dp
+    val compact = cardWidth < 46.dp
 
     Box(
         modifier = modifier
-            .size(cardSize)
+            .size(width = cardWidth, height = cardHeight)
             .clip(RoundedCornerShape(8.dp))
             .background(cs.surface)
             .border(borderWidth, borderColor, RoundedCornerShape(8.dp))
@@ -229,16 +250,16 @@ fun SquarePitchPlayerCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(cardSize * 0.28f)
+                .height(cardHeight * 0.24f)
                 .align(Alignment.TopCenter)
                 .background(Color.Black.copy(alpha = 0.56f))
         )
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(cardSize * 0.34f)
+                .height(cardHeight * 0.30f)
                 .align(Alignment.BottomCenter)
-                .background(Color.Black.copy(alpha = 0.78f))
+                .background(Color.Black.copy(alpha = 0.80f))
         )
 
         // Top row: Main Position + Role Icon (left) and Position Power (right)
@@ -254,13 +275,13 @@ fun SquarePitchPlayerCard(
                 PositionRoleLogo(
                     line = slotPosition.line,
                     tint = lineColor,
-                    size = if (compact) 9.dp else 11.dp
+                    size = if (compact) 8.dp else 10.dp
                 )
                 Spacer(modifier = Modifier.width(1.5.dp))
                 Text(
                     text = player.mainPosition,
                     color = Color.White,
-                    fontSize = if (compact) 8.sp else 9.5.sp,
+                    fontSize = if (compact) 7.5.sp else 9.sp,
                     fontWeight = FontWeight.ExtraBold,
                     maxLines = 1
                 )
@@ -274,7 +295,7 @@ fun SquarePitchPlayerCard(
                 Text(
                     text = effectivePower.toString(),
                     color = if (isTeamAwayBadge || slotPosition.line != PlayingLine.MID) Color.White else Color.Black,
-                    fontSize = if (compact) 8.5.sp else 10.sp,
+                    fontSize = if (compact) 8.sp else 9.5.sp,
                     fontWeight = FontWeight.ExtraBold
                 )
             }
@@ -286,13 +307,13 @@ fun SquarePitchPlayerCard(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
                     .padding(start = 2.dp),
-                verticalArrangement = Arrangement.spacedBy(1.dp)
+                verticalArrangement = Arrangement.spacedBy(1.5.dp)
             ) {
                 player.extraPositionList.take(2).forEach { extra ->
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(3.dp))
-                            .background(Color.Black.copy(alpha = 0.72f))
+                            .background(Color.Black.copy(alpha = 0.74f))
                             .border(0.6.dp, extra.line.color, RoundedCornerShape(3.dp))
                             .padding(horizontal = 2.dp, vertical = 0.5.dp)
                     ) {
@@ -325,13 +346,14 @@ fun SquarePitchPlayerCard(
                 )
                 ClubCrestBadge(
                     clubName = player.club,
-                    size = if (compact) 11.dp else 13.dp
+                    customClubLogoUri = player.customClubLogoUri,
+                    size = if (compact) 10.dp else 13.dp
                 )
             }
             Text(
                 text = player.nickname.ifBlank { player.name.substringAfterLast(" ") },
                 color = Color.White,
-                fontSize = if (compact) 8.sp else 9.5.sp,
+                fontSize = if (compact) 7.5.sp else 9.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -345,7 +367,8 @@ fun SquarePitchPlayerCard(
 @Composable
 fun EmptyPitchSlot(
     slotPosition: PositionCode,
-    cardSize: Dp,
+    cardWidth: Dp,
+    cardHeight: Dp,
     isDropTarget: Boolean,
     modifier: Modifier = Modifier
 ) {
@@ -353,9 +376,9 @@ fun EmptyPitchSlot(
     val borderColor = if (isDropTarget) FifOrange else lineColor.copy(alpha = 0.85f)
     Box(
         modifier = modifier
-            .size(cardSize)
+            .size(width = cardWidth, height = cardHeight)
             .clip(RoundedCornerShape(8.dp))
-            .background(Color.Black.copy(alpha = 0.42f))
+            .background(if (isDropTarget) FifOrange.copy(alpha = 0.30f) else Color.Black.copy(alpha = 0.44f))
             .border(if (isDropTarget) 3.dp else 1.8.dp, borderColor, RoundedCornerShape(8.dp)),
         contentAlignment = Alignment.Center
     ) {
@@ -364,12 +387,12 @@ fun EmptyPitchSlot(
                 imageVector = Icons.Filled.Add,
                 contentDescription = slotPosition.code,
                 tint = Color.White,
-                modifier = Modifier.size(if (cardSize < 56.dp) 14.dp else 18.dp)
+                modifier = Modifier.size(if (cardWidth < 46.dp) 13.dp else 18.dp)
             )
             Text(
                 text = slotPosition.code,
                 color = lineColor,
-                fontSize = if (cardSize < 56.dp) 8.5.sp else 10.sp,
+                fontSize = if (cardWidth < 46.dp) 8.sp else 10.sp,
                 fontWeight = FontWeight.ExtraBold
             )
         }
@@ -436,6 +459,9 @@ fun CoachPitchCard(
     }
 }
 
+/**
+ * Vertical rectangular player card for the Players Library Grid view.
+ */
 @Composable
 fun LibraryPlayerCardGrid(
     player: PlayerEntity,
@@ -449,7 +475,7 @@ fun LibraryPlayerCardGrid(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .aspectRatio(0.92f)
+            .aspectRatio(VERTICAL_CARD_RATIO)
             .clip(RoundedCornerShape(12.dp))
             .background(cs.surface)
             .border(2.5.dp, lineColor, RoundedCornerShape(12.dp))
@@ -589,7 +615,11 @@ fun LibraryPlayerCardGrid(
                 ) {
                     Text(text = player.flagEmoji, fontSize = 13.sp)
                     Spacer(modifier = Modifier.width(4.dp))
-                    ClubCrestBadge(clubName = player.club, size = 15.dp)
+                    ClubCrestBadge(
+                        clubName = player.club,
+                        customClubLogoUri = player.customClubLogoUri,
+                        size = 15.dp
+                    )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = player.club,
@@ -600,10 +630,10 @@ fun LibraryPlayerCardGrid(
                     )
                 }
                 Text(
-                    text = "${player.heightCm}cm • ${player.preferredFoot}",
+                    text = player.preferredFoot,
                     style = MaterialTheme.typography.labelSmall,
-                    color = cs.onSurfaceVariant,
-                    fontSize = 9.sp
+                    color = FifOrange,
+                    fontSize = 10.sp
                 )
             }
         }
@@ -630,10 +660,10 @@ fun LibraryPlayerCardList(
             .testTag("player_list_card_${player.id}"),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Left Square Card Thumbnail with left-edge extra positions
+        // Left Vertical Rectangular Card Thumbnail with left-edge extra positions
         Box(
             modifier = Modifier
-                .size(66.dp)
+                .size(width = 52.dp, height = 72.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .border(1.5.dp, lineColor, RoundedCornerShape(8.dp))
         ) {
@@ -711,7 +741,11 @@ fun LibraryPlayerCardList(
             }
             Spacer(modifier = Modifier.height(2.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                ClubCrestBadge(clubName = player.club, size = 14.dp)
+                ClubCrestBadge(
+                    clubName = player.club,
+                    customClubLogoUri = player.customClubLogoUri,
+                    size = 14.dp
+                )
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
                     text = "${player.club} • ${player.league}",
@@ -722,10 +756,10 @@ fun LibraryPlayerCardList(
                     modifier = Modifier.weight(1f)
                 )
                 Text(
-                    text = "${player.heightCm}cm/${player.weightKg}kg/${player.preferredFoot}",
+                    text = "HEA:${player.heading} STA:${player.stamina}",
                     style = MaterialTheme.typography.labelSmall,
                     color = cs.onSurfaceVariant,
-                    fontSize = 10.sp
+                    fontSize = 9.5.sp
                 )
             }
         }
@@ -734,7 +768,7 @@ fun LibraryPlayerCardList(
 
         Box(
             modifier = Modifier
-                .size(40.dp)
+                .size(width = 38.dp, height = 46.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .background(lineColor),
             contentAlignment = Alignment.Center

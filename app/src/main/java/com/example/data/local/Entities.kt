@@ -20,8 +20,7 @@ data class PlayerEntity(
     val secondaryPositions: String = "",
     val avatarGender: String = AvatarGender.MALE.name,
     val customImageUri: String? = null,
-    val heightCm: Int = 180,
-    val weightKg: Int = 75,
+    val customClubLogoUri: String? = null,
     val preferredFoot: String = PreferredFoot.RIGHT.code,
     val pace: Int = 78,
     val shooting: Int = 75,
@@ -29,6 +28,10 @@ data class PlayerEntity(
     val dribbling: Int = 78,
     val defending: Int = 65,
     val physical: Int = 75,
+    val heading: Int = 72,
+    val crossing: Int = 72,
+    val tackling: Int = 65,
+    val stamina: Int = 78,
     val gkStat: Int = 20,
     val powerGk: Int = 45,
     val powerDef: Int = 70,
@@ -67,13 +70,7 @@ data class PlayerEntity(
     }
 
     fun powerForSlot(slotPosition: PositionCode): Int {
-        val base = powerForLine(slotPosition.line)
-        // Slight tactical chemistry bonus if exact natural or secondary match
-        return when {
-            slotPosition == mainPositionCode -> base
-            extraPositionList.contains(slotPosition) -> base
-            else -> base
-        }.coerceIn(1, 99)
+        return powerForLine(slotPosition.line).coerceIn(1, 99)
     }
 
     fun packDefaults(): String {
@@ -86,6 +83,10 @@ data class PlayerEntity(
             dribbling,
             defending,
             physical,
+            heading,
+            crossing,
+            tackling,
+            stamina,
             gkStat,
             powerGk,
             powerDef,
@@ -97,7 +98,7 @@ data class PlayerEntity(
     fun restoredFromSnapshot(): PlayerEntity {
         if (!isBuiltIn || defaultSnapshot.isBlank()) return this
         val parts = defaultSnapshot.split("|")
-        if (parts.size < 13) return this
+        if (parts.size < 17) return this
         return copy(
             mainPosition = parts[0],
             secondaryPositions = parts[1],
@@ -107,11 +108,15 @@ data class PlayerEntity(
             dribbling = parts[5].toIntOrNull() ?: dribbling,
             defending = parts[6].toIntOrNull() ?: defending,
             physical = parts[7].toIntOrNull() ?: physical,
-            gkStat = parts[8].toIntOrNull() ?: gkStat,
-            powerGk = parts[9].toIntOrNull() ?: powerGk,
-            powerDef = parts[10].toIntOrNull() ?: powerDef,
-            powerMid = parts[11].toIntOrNull() ?: powerMid,
-            powerAtt = parts[12].toIntOrNull() ?: powerAtt
+            heading = parts[8].toIntOrNull() ?: heading,
+            crossing = parts[9].toIntOrNull() ?: crossing,
+            tackling = parts[10].toIntOrNull() ?: tackling,
+            stamina = parts[11].toIntOrNull() ?: stamina,
+            gkStat = parts[12].toIntOrNull() ?: gkStat,
+            powerGk = parts[13].toIntOrNull() ?: powerGk,
+            powerDef = parts[14].toIntOrNull() ?: powerDef,
+            powerMid = parts[15].toIntOrNull() ?: powerMid,
+            powerAtt = parts[16].toIntOrNull() ?: powerAtt
         )
     }
 }
@@ -122,7 +127,18 @@ data class LineupSlotEntity(
     val teamSide: String, // "HOME" or "AWAY"
     val isStarter: Boolean,
     val slotIndex: Int,
-    val playerId: Long?
+    val playerId: Long?,
+    val customX: Float? = null,
+    val customY: Float? = null
+)
+
+@Entity(tableName = "saved_formations")
+data class SavedFormationEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val baseFormationId: String,
+    val slotsData: String, // "slotIndex,posCode,customX,customY,playerId;..."
+    val createdAt: Long = System.currentTimeMillis()
 )
 
 @Entity(tableName = "coaches")

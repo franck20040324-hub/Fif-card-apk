@@ -14,6 +14,7 @@ import com.example.data.local.FifCardDatabase
 import com.example.data.local.LineupSlotEntity
 import com.example.data.local.PlayerEntity
 import com.example.data.local.PreferencesRepository
+import com.example.data.local.SavedFormationEntity
 import com.example.data.local.UserPrefs
 import com.example.model.AppLanguage
 import com.example.model.Formation
@@ -44,6 +45,9 @@ data class SlotContext(
     val isStarter: Boolean,
     val slotIndex: Int,
     val slotPosition: PositionCode,
+    val x: Float,
+    val y: Float,
+    val hasCustomPosition: Boolean,
     val player: PlayerEntity?
 )
 
@@ -68,10 +72,12 @@ data class FifCardUiState(
     val homeSubSlots: List<SlotContext> = emptyList(),
     val awayStarterSlots: List<SlotContext> = emptyList(),
     val awaySubSlots: List<SlotContext> = emptyList(),
+    val savedFormations: List<SavedFormationEntity> = emptyList(),
     val homeCoach: CoachEntity = CoachEntity(TeamSide.HOME.name, "Manager Home", "Spain", "🇪🇸"),
     val awayCoach: CoachEntity = CoachEntity(TeamSide.AWAY.name, "Manager Away", "France", "🇫🇷"),
     val activeMatchSide: TeamSide = TeamSide.HOME,
     val selectedSlotKey: String? = null,
+    val repositioningSlotKey: String? = null,
     val pickerTargetSlot: SlotContext? = null,
     val inspectedPlayerSlot: SlotContext? = null,
     val editingPlayer: PlayerEntity? = null,
@@ -79,6 +85,8 @@ data class FifCardUiState(
     val editingCoachSide: TeamSide? = null,
     val showPlaylistSheet: Boolean = false,
     val showResetConfirmDialog: Boolean = false,
+    val showSaveFormationDialog: Boolean = false,
+    val showSavedFormationsSheet: Boolean = false,
     val musicState: MusicState = MusicState()
 ) {
     val homeFormation: Formation get() = FormationCatalog.byId(prefs.homeFormationId)
@@ -112,6 +120,7 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
     private val filterState = MutableStateFlow(PlayerFilterState())
     private val activeMatchSide = MutableStateFlow(TeamSide.HOME)
     private val selectedSlotKey = MutableStateFlow<String?>(null)
+    private val repositioningSlotKey = MutableStateFlow<String?>(null)
     private val pickerTargetSlotKey = MutableStateFlow<String?>(null)
     private val inspectedSlotKey = MutableStateFlow<String?>(null)
     private val inspectedStandalonePlayerId = MutableStateFlow<Long?>(null)
@@ -120,6 +129,8 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
     private val editingCoachSide = MutableStateFlow<TeamSide?>(null)
     private val showPlaylistSheet = MutableStateFlow(false)
     private val showResetConfirmDialog = MutableStateFlow(false)
+    private val showSaveFormationDialog = MutableStateFlow(false)
+    private val showSavedFormationsSheet = MutableStateFlow(false)
     private val isSeeded = MutableStateFlow(false)
 
     private data class ModalState(
@@ -127,6 +138,7 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
         val filter: PlayerFilterState,
         val matchSide: TeamSide,
         val selectedSlot: String?,
+        val repositionSlot: String?,
         val pickerSlot: String?,
         val inspectedSlot: String?,
         val inspectedPlayerId: Long?,
@@ -134,25 +146,35 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
         val creatingForSlot: String?,
         val editingCoach: TeamSide?,
         val playlistOpen: Boolean,
-        val resetDialog: Boolean
+        val resetDialog: Boolean,
+        val saveFormationDialog: Boolean,
+        val savedFormationsSheet: Boolean
     )
 
     private val modalFlow = combine(
-        combine(activeTab, filterState, activeMatchSide, selectedSlotKey) { t, f, m, s ->
-            arrayOf<Any?>(t, f, m, s)
+        combine(activeTab, filterState, activeMatchSide, selectedSlotKey, repositioningSlotKey) { t, f, m, s, rp ->
+            arrayOf<Any?>(t, f, m, s, rp)
         },
         combine(pickerTargetSlotKey, inspectedSlotKey, inspectedStandalonePlayerId, editingPlayerState) { p, i, ip, e ->
             arrayOf<Any?>(p, i, ip, e)
         },
-        combine(creatingForSlotKey, editingCoachSide, showPlaylistSheet, showResetConfirmDialog) { c, ec, pl, rd ->
-            arrayOf<Any?>(c, ec, pl, rd)
-        }
-    ) { a, b, c ->
+        combine(
+            creatingForSlotKey,
+            editingCoachSide,
+            showPlaylistSheet,
+            showResetConfirmDialog,
+            showSaveFormationDialog
+        ) { c, ec, pl, rd, sf ->
+            arrayOf<Any?>(c, ec, pl, rd, sf)
+        },
+        showSavedFormationsSheet
+    ) { a, b, c, sfs ->
         ModalState(
             tab = a[0] as MainTab,
             filter = a[1] as PlayerFilterState,
             matchSide = a[2] as TeamSide,
             selectedSlot = a[3] as String?,
+            repositionSlot = a[4] as String?,
             pickerSlot = b[0] as String?,
             inspectedSlot = b[1] as String?,
             inspectedPlayerId = b[2] as Long?,
@@ -160,7 +182,9 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
             creatingForSlot = c[0] as String?,
             editingCoach = c[1] as TeamSide?,
             playlistOpen = c[2] as Boolean,
-            resetDialog = c[3] as Boolean
+            resetDialog = c[3] as Boolean,
+            saveFormationDialog = c[4] as Boolean,
+            savedFormationsSheet = sfs
         )
     }
 
@@ -175,10 +199,11 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
         },
         combine(
             repository.coachesFlow,
+            repository.savedFormationsFlow,
             musicManager.state,
             modalFlow
-        ) { coaches, music, modal ->
-            Triple(coaches, music, modal)
+        ) { coaches, savedForms, music, modal ->
+            arrayOf<Any?>(coaches, savedForms, music, modal)
         }
     ) { core, extras ->
         val seeded = core[0] as Boolean
@@ -187,9 +212,12 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
         val players = core[2] as List<PlayerEntity>
         @Suppress("UNCHECKED_CAST")
         val slots = core[3] as List<LineupSlotEntity>
-        val coaches = extras.first
-        val music = extras.second
-        val modal = extras.third
+        @Suppress("UNCHECKED_CAST")
+        val coaches = extras[0] as List<CoachEntity>
+        @Suppress("UNCHECKED_CAST")
+        val savedFormations = extras[1] as List<SavedFormationEntity>
+        val music = extras[2] as MusicState
+        val modal = extras[3] as ModalState
 
         val playerById = players.associateBy { it.id }
         val homeFormation = FormationCatalog.byId(prefs.homeFormationId)
@@ -216,6 +244,9 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
                     isStarter = false,
                     slotIndex = -1,
                     slotPosition = p.mainPositionCode,
+                    x = 0.5f,
+                    y = 0.5f,
+                    hasCustomPosition = false,
                     player = p
                 )
             }
@@ -233,10 +264,12 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
             homeSubSlots = homeSubs,
             awayStarterSlots = awayStarters,
             awaySubSlots = awaySubs,
+            savedFormations = savedFormations,
             homeCoach = homeCoach,
             awayCoach = awayCoach,
             activeMatchSide = modal.matchSide,
             selectedSlotKey = modal.selectedSlot,
+            repositioningSlotKey = modal.repositionSlot,
             pickerTargetSlot = modal.pickerSlot?.let { key -> allContexts.firstOrNull { it.slotKey == key } },
             inspectedPlayerSlot = inspectedContext,
             editingPlayer = modal.editingPlayer,
@@ -244,6 +277,8 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
             editingCoachSide = modal.editingCoach,
             showPlaylistSheet = modal.playlistOpen,
             showResetConfirmDialog = modal.resetDialog,
+            showSaveFormationDialog = modal.saveFormationDialog,
+            showSavedFormationsSheet = modal.savedFormationsSheet,
             musicState = music
         )
     }.stateIn(
@@ -276,12 +311,17 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
         return formation.slots.map { fSlot ->
             val entity = map[fSlot.index]
             val key = entity?.slotKey ?: FifCardRepository.starterKey(side, fSlot.index)
+            val cx = entity?.customX
+            val cy = entity?.customY
             SlotContext(
                 slotKey = key,
                 teamSide = side,
                 isStarter = true,
                 slotIndex = fSlot.index,
                 slotPosition = fSlot.position,
+                x = cx ?: fSlot.x,
+                y = cy ?: fSlot.y,
+                hasCustomPosition = cx != null && cy != null,
                 player = entity?.playerId?.let { playerById[it] }
             )
         }
@@ -303,6 +343,9 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
                     isStarter = false,
                     slotIndex = entity.slotIndex,
                     slotPosition = player?.mainPositionCode ?: PositionCode.CM,
+                    x = 0.5f,
+                    y = 0.5f,
+                    hasCustomPosition = false,
                     player = player
                 )
             }
@@ -346,6 +389,7 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
     fun setTab(tab: MainTab) {
         activeTab.value = tab
         selectedSlotKey.value = null
+        repositioningSlotKey.value = null
     }
 
     fun toggleTheme() {
@@ -377,6 +421,7 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
 
     fun setMatchMode(enabled: Boolean) {
         selectedSlotKey.value = null
+        repositioningSlotKey.value = null
         viewModelScope.launch { prefsRepo.setMatchMode(enabled) }
     }
 
@@ -385,9 +430,52 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun setFormation(side: TeamSide, formationId: String) {
+        repositioningSlotKey.value = null
         viewModelScope.launch {
+            repository.clearCustomPositionsForTeam(side)
             if (side == TeamSide.HOME) prefsRepo.setHomeFormation(formationId)
             else prefsRepo.setAwayFormation(formationId)
+        }
+    }
+
+    fun openSaveFormationDialog() {
+        showSaveFormationDialog.value = true
+    }
+
+    fun closeSaveFormationDialog() {
+        showSaveFormationDialog.value = false
+    }
+
+    fun saveCurrentFormation(side: TeamSide, name: String) {
+        showSaveFormationDialog.value = false
+        val starters = if (side == TeamSide.HOME) uiState.value.homeStarterSlots else uiState.value.awayStarterSlots
+        val baseId = if (side == TeamSide.HOME) uiState.value.prefs.homeFormationId else uiState.value.prefs.awayFormationId
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.saveFormationLocally(name, baseId, starters)
+        }
+    }
+
+    fun openSavedFormationsSheet() {
+        showSavedFormationsSheet.value = true
+    }
+
+    fun closeSavedFormationsSheet() {
+        showSavedFormationsSheet.value = false
+    }
+
+    fun loadSavedFormation(side: TeamSide, saved: SavedFormationEntity) {
+        showSavedFormationsSheet.value = false
+        repositioningSlotKey.value = null
+        viewModelScope.launch(Dispatchers.IO) {
+            if (side == TeamSide.HOME) prefsRepo.setHomeFormation(saved.baseFormationId)
+            else prefsRepo.setAwayFormation(saved.baseFormationId)
+            repository.loadSavedFormation(side, saved)
+        }
+    }
+
+    fun deleteSavedFormation(id: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.deleteSavedFormation(id)
         }
     }
 
@@ -400,10 +488,14 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun onSlotTapped(slot: SlotContext) {
+        if (repositioningSlotKey.value != null) {
+            repositioningSlotKey.value = null
+            return
+        }
+
         val currentSelected = selectedSlotKey.value
         if (currentSelected != null) {
             if (currentSelected == slot.slotKey) {
-                // Second tap on same player opens detail/edit inspector
                 selectedSlotKey.value = null
                 if (slot.player != null) {
                     inspectedSlotKey.value = slot.slotKey
@@ -412,7 +504,6 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
                     pickerTargetSlotKey.value = slot.slotKey
                 }
             } else {
-                // Tap second slot -> swap immediately!
                 selectedSlotKey.value = null
                 viewModelScope.launch(Dispatchers.IO) {
                     repository.swapSlots(currentSelected, slot.slotKey)
@@ -422,12 +513,36 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
         }
 
         if (slot.player == null) {
-            // Empty slot -> open Add Player Sheet (Create, Search, Famous, Club, Nation, League)
             pickerTargetSlotKey.value = slot.slotKey
         } else {
-            // Select first player for tap-to-swap (or inspect)
             selectedSlotKey.value = slot.slotKey
         }
+    }
+
+    fun startRepositioning(slot: SlotContext) {
+        if (!slot.isStarter) return
+        selectedSlotKey.value = null
+        repositioningSlotKey.value = slot.slotKey
+    }
+
+    fun nudgeSlotPosition(slotKey: String, dx: Float, dy: Float) {
+        val all = uiState.value.homeStarterSlots + uiState.value.awayStarterSlots
+        val slot = all.firstOrNull { it.slotKey == slotKey } ?: return
+        val newX = (slot.x + dx).coerceIn(0.08f, 0.92f)
+        val newY = (slot.y + dy).coerceIn(0.08f, 0.92f)
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.updateSlotCoordinates(slotKey, newX, newY)
+        }
+    }
+
+    fun resetSlotPosition(slotKey: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.updateSlotCoordinates(slotKey, null, null)
+        }
+    }
+
+    fun finishRepositioning() {
+        repositioningSlotKey.value = null
     }
 
     fun cancelSlotSelection() {
@@ -443,6 +558,7 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
 
     fun swapSlots(slotKeyA: String, slotKeyB: String) {
         selectedSlotKey.value = null
+        repositioningSlotKey.value = null
         if (slotKeyA == slotKeyB) return
         viewModelScope.launch(Dispatchers.IO) {
             repository.swapSlots(slotKeyA, slotKeyB)

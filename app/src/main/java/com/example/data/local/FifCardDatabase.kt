@@ -9,15 +9,17 @@ import androidx.room.RoomDatabase
     entities = [
         PlayerEntity::class,
         LineupSlotEntity::class,
+        SavedFormationEntity::class,
         CoachEntity::class,
         SongEntity::class
     ],
-    version = 1,
+    version = 3,
     exportSchema = false
 )
 abstract class FifCardDatabase : RoomDatabase() {
     abstract fun playerDao(): PlayerDao
     abstract fun lineupDao(): LineupDao
+    abstract fun savedFormationDao(): SavedFormationDao
     abstract fun coachDao(): CoachDao
     abstract fun songDao(): SongDao
 
@@ -31,7 +33,10 @@ abstract class FifCardDatabase : RoomDatabase() {
                     context.applicationContext,
                     FifCardDatabase::class.java,
                     "fif_card_db"
-                ).build().also { INSTANCE = it }
+                )
+                    .fallbackToDestructiveMigration(dropAllTables = true)
+                    .build()
+                    .also { INSTANCE = it }
             }
         }
     }

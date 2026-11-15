@@ -57,6 +57,8 @@ import com.example.ui.sheets.PlayerEditorDialog
 import com.example.ui.sheets.PlayerPickerSheet
 import com.example.ui.sheets.PlaylistSheet
 import com.example.ui.sheets.ResetFifProConfirmDialog
+import com.example.ui.sheets.SaveFormationDialog
+import com.example.ui.sheets.SavedFormationsSheet
 import com.example.ui.theme.FifCardTheme
 import com.example.ui.theme.FifOrange
 
@@ -75,7 +77,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
-        // Never keep playing music when app goes to background
         viewModel.musicManager.onAppBackgrounded()
     }
 
@@ -102,11 +103,17 @@ private fun FifCardRoot(
         }
     }
 
-    BackHandler(enabled = uiState.selectedSlotKey != null || uiState.activeTab == MainTab.PLAYERS) {
-        if (uiState.selectedSlotKey != null) {
-            viewModel.cancelSlotSelection()
-        } else if (uiState.activeTab == MainTab.PLAYERS) {
-            viewModel.setTab(MainTab.PITCH)
+    val activeSide = if (uiState.prefs.isMatchMode) uiState.activeMatchSide else TeamSide.HOME
+
+    BackHandler(
+        enabled = uiState.repositioningSlotKey != null ||
+            uiState.selectedSlotKey != null ||
+            uiState.activeTab == MainTab.PLAYERS
+    ) {
+        when {
+            uiState.repositioningSlotKey != null -> viewModel.finishRepositioning()
+            uiState.selectedSlotKey != null -> viewModel.cancelSlotSelection()
+            uiState.activeTab == MainTab.PLAYERS -> viewModel.setTab(MainTab.PITCH)
         }
     }
 
@@ -199,8 +206,14 @@ private fun FifCardRoot(
                                 onSetMatchMode = viewModel::setMatchMode,
                                 onSetActiveMatchSide = viewModel::setActiveMatchSide,
                                 onSelectFormation = viewModel::setFormation,
+                                onOpenSaveFormation = viewModel::openSaveFormationDialog,
+                                onOpenSavedFormations = viewModel::openSavedFormationsSheet,
                                 onSelectPitchTheme = viewModel::setPitchTheme,
                                 onSlotTap = viewModel::onSlotTapped,
+                                onHoldForArrows = viewModel::startRepositioning,
+                                onNudgeSlot = viewModel::nudgeSlotPosition,
+                                onResetSlotPosition = viewModel::resetSlotPosition,
+                                onFinishRepositioning = viewModel::finishRepositioning,
                                 onSwapSlots = viewModel::swapSlots,
                                 onInspectSelected = viewModel::inspectSelectedSlot,
                                 onCancelSelection = viewModel::cancelSlotSelection,
@@ -221,7 +234,7 @@ private fun FifCardRoot(
                 }
             }
 
-            // Empty Slot Picker Sheet (Add New Card, Search, Famous Power, Club, Nation, League)
+            // Empty Slot Picker Sheet
             val pickerTarget = uiState.pickerTargetSlot
             if (pickerTarget != null) {
                 PlayerPickerSheet(
@@ -256,7 +269,7 @@ private fun FifCardRoot(
                 )
             }
 
-            // Coach Editor Dialog (Only Name, Nationality & local photo customizable)
+            // Coach Editor Dialog
             val editingCoachSide = uiState.editingCoachSide
             if (editingCoachSide != null) {
                 val coach = if (editingCoachSide == TeamSide.HOME) uiState.homeCoach else uiState.awayCoach
@@ -265,6 +278,26 @@ private fun FifCardRoot(
                     onPersistPhotoUri = viewModel::persistPhotoUriPermission,
                     onSave = viewModel::saveCoach,
                     onDismiss = viewModel::closeCoachEditor
+                )
+            }
+
+            // Save Formation Dialog
+            if (uiState.showSaveFormationDialog) {
+                val currentForm = if (activeSide == TeamSide.HOME) uiState.homeFormation else uiState.awayFormation
+                SaveFormationDialog(
+                    defaultName = "${currentForm.name} Custom",
+                    onSave = { name -> viewModel.saveCurrentFormation(activeSide, name) },
+                    onDismiss = viewModel::closeSaveFormationDialog
+                )
+            }
+
+            // Saved Formations Local Storage Sheet
+            if (uiState.showSavedFormationsSheet) {
+                SavedFormationsSheet(
+                    savedFormations = uiState.savedFormations,
+                    onLoadFormation = { saved -> viewModel.loadSavedFormation(activeSide, saved) },
+                    onDeleteFormation = viewModel::deleteSavedFormation,
+                    onDismiss = viewModel::closeSavedFormationsSheet
                 )
             }
 

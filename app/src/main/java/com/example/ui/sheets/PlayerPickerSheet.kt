@@ -330,7 +330,11 @@ fun PlayerPickerSheet(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(text = player.flagEmoji, fontSize = 12.sp)
                                 Spacer(modifier = Modifier.width(4.dp))
-                                ClubCrestBadge(clubName = player.club, size = 14.dp)
+                                ClubCrestBadge(
+                                    clubName = player.club,
+                                    customClubLogoUri = player.customClubLogoUri,
+                                    size = 14.dp
+                                )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
                                     text = "${player.club} • ${player.league}",

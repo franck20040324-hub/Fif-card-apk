@@ -8,9 +8,12 @@ import com.example.data.local.LineupDao
 import com.example.data.local.LineupSlotEntity
 import com.example.data.local.PlayerDao
 import com.example.data.local.PlayerEntity
+import com.example.data.local.SavedFormationDao
+import com.example.data.local.SavedFormationEntity
 import com.example.data.local.SongDao
 import com.example.data.local.SongEntity
 import com.example.model.TeamSide
+import com.example.ui.SlotContext
 import kotlinx.coroutines.flow.Flow
 
 class FifCardRepository(
@@ -18,11 +21,13 @@ class FifCardRepository(
 ) {
     private val playerDao: PlayerDao = db.playerDao()
     private val lineupDao: LineupDao = db.lineupDao()
+    private val savedFormationDao: SavedFormationDao = db.savedFormationDao()
     private val coachDao: CoachDao = db.coachDao()
     private val songDao: SongDao = db.songDao()
 
     val playersFlow: Flow<List<PlayerEntity>> = playerDao.observeAllPlayers()
     val lineupSlotsFlow: Flow<List<LineupSlotEntity>> = lineupDao.observeLineupSlots()
+    val savedFormationsFlow: Flow<List<SavedFormationEntity>> = savedFormationDao.observeSavedFormations()
     val coachesFlow: Flow<List<CoachEntity>> = coachDao.observeCoaches()
     val songsFlow: Flow<List<SongEntity>> = songDao.observeSongs()
 
@@ -77,7 +82,6 @@ class FifCardRepository(
                 )
             )
         }
-        // Start with 3 substitution slots; user can add infinite substitution slots
         for (s in 0 until 3) {
             slots.add(
                 LineupSlotEntity(
@@ -98,7 +102,6 @@ class FifCardRepository(
         )
         val target = currentSlots.firstOrNull { it.slotKey == slotKey } ?: return
         if (playerId != null) {
-            // Avoid duplicate of same player in same team lineup
             val existing = currentSlots.firstOrNull { it.playerId == playerId && it.slotKey != slotKey }
             if (existing != null) {
                 lineupDao.upsertSlot(existing.copy(playerId = target.playerId))
@@ -120,6 +123,64 @@ class FifCardRepository(
                 b.copy(playerId = a.playerId)
             )
         )
+    }
+
+    suspend fun updateSlotCoordinates(slotKey: String, x: Float?, y: Float?) {
+        val side = if (slotKey.startsWith(TeamSide.AWAY.name)) TeamSide.AWAY.name else TeamSide.HOME.name
+        val slot = lineupDao.getSlotsForTeamOnce(side).firstOrNull { it.slotKey == slotKey } ?: return
+        lineupDao.upsertSlot(slot.copy(customX = x, customY = y))
+    }
+
+    suspend fun clearCustomPositionsForTeam(side: TeamSide) {
+        lineupDao.clearCustomPositionsForTeam(side.name)
+    }
+
+    suspend fun saveFormationLocally(
+        name: String,
+        baseFormationId: String,
+        starterSlots: List<SlotContext>
+    ) {
+        val packed = starterSlots.joinToString(";") { slot ->
+            val pid = slot.player?.id?.toString() ?: ""
+            "${slot.slotIndex},${slot.slotPosition.code},${slot.x},${slot.y},$pid"
+        }
+        savedFormationDao.insertSavedFormation(
+            SavedFormationEntity(
+                name = name.trim().ifEmpty { baseFormationId },
+                baseFormationId = baseFormationId,
+                slotsData = packed
+            )
+        )
+    }
+
+    suspend fun loadSavedFormation(side: TeamSide, saved: SavedFormationEntity) {
+        val existingSlots = lineupDao.getSlotsForTeamOnce(side.name).associateBy { it.slotKey }
+        val updated = mutableListOf<LineupSlotEntity>()
+        saved.slotsData.split(";").forEach { token ->
+            val parts = token.split(",")
+            if (parts.size >= 5) {
+                val idx = parts[0].toIntOrNull() ?: return@forEach
+                val x = parts[2].toFloatOrNull()
+                val y = parts[3].toFloatOrNull()
+                val pid = parts[4].toLongOrNull()
+                val key = starterKey(side, idx)
+                val base = existingSlots[key] ?: LineupSlotEntity(
+                    slotKey = key,
+                    teamSide = side.name,
+                    isStarter = true,
+                    slotIndex = idx,
+                    playerId = null
+                )
+                updated.add(base.copy(playerId = pid, customX = x, customY = y))
+            }
+        }
+        if (updated.isNotEmpty()) {
+            lineupDao.upsertSlots(updated)
+        }
+    }
+
+    suspend fun deleteSavedFormation(id: Long) {
+        savedFormationDao.deleteSavedFormation(id)
     }
 
     suspend fun addSubSlot(teamSide: TeamSide): String {

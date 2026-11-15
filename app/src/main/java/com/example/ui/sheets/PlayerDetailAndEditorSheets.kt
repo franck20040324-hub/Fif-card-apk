@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,16 +22,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -43,8 +48,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -61,12 +64,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.audio.MusicState
 import com.example.data.local.CoachEntity
 import com.example.data.local.PlayerEntity
+import com.example.data.local.SavedFormationEntity
 import com.example.i18n.LocalAppStrings
 import com.example.model.AppLanguage
 import com.example.model.AvatarGender
@@ -85,7 +90,6 @@ import com.example.ui.theme.LineAttRed
 import com.example.ui.theme.LineDefGreen
 import com.example.ui.theme.LineGkBlue
 import com.example.ui.theme.LineMidYellow
-import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -117,9 +121,10 @@ fun PlayerDetailSheet(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Vertical Rectangular Card Portrait
                 Box(
                     modifier = Modifier
-                        .size(94.dp)
+                        .size(width = 78.dp, height = 108.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .border(2.5.dp, lineColor, RoundedCornerShape(12.dp))
                 ) {
@@ -189,31 +194,26 @@ fun PlayerDetailSheet(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(player.nationality, style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
                         Spacer(modifier = Modifier.width(8.dp))
-                        ClubCrestBadge(clubName = player.club, size = 16.dp)
+                        ClubCrestBadge(
+                            clubName = player.club,
+                            customClubLogoUri = player.customClubLogoUri,
+                            size = 16.dp
+                        )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(player.club, style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
                     }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    val footStr = when (PreferredFoot.fromCode(player.preferredFoot)) {
+                        PreferredFoot.LEFT -> strings.footLeft
+                        PreferredFoot.BOTH -> strings.footBoth
+                        PreferredFoot.RIGHT -> strings.footRight
+                    }
+                    Text(
+                        text = "${strings.preferredFootLabel}: $footStr • ${player.league}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = cs.onSurfaceVariant
+                    )
                 }
-            }
-
-            // Physical Details
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(cs.surface)
-                    .border(1.dp, cs.outline, RoundedCornerShape(10.dp))
-                    .padding(10.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                StatChip(label = strings.heightLabel, value = "${player.heightCm} ${strings.cmUnit}")
-                StatChip(label = strings.weightLabel, value = "${player.weightKg} ${strings.kgUnit}")
-                val footStr = when (PreferredFoot.fromCode(player.preferredFoot)) {
-                    PreferredFoot.LEFT -> strings.footLeft
-                    PreferredFoot.BOTH -> strings.footBoth
-                    PreferredFoot.RIGHT -> strings.footRight
-                }
-                StatChip(label = strings.preferredFootLabel, value = footStr)
             }
 
             // Position-Based Powers
@@ -232,7 +232,7 @@ fun PlayerDetailSheet(
                 LinePowerBox("ATT", player.powerAtt, LineAttRed, Modifier.weight(1f))
             }
 
-            // Individual Skill Ratings
+            // Individual Skill Ratings including Heading, Crossing, Tackling
             Text(
                 text = strings.skillsTitle,
                 style = MaterialTheme.typography.titleSmall,
@@ -245,7 +245,7 @@ fun PlayerDetailSheet(
                     .background(cs.surface)
                     .border(1.dp, cs.outline, RoundedCornerShape(10.dp))
                     .padding(10.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     SkillPill(strings.pace, player.pace)
@@ -257,7 +257,13 @@ fun PlayerDetailSheet(
                     SkillPill(strings.defending, player.defending)
                     SkillPill(strings.physical, player.physical)
                 }
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    SkillPill(strings.heading, player.heading)
+                    SkillPill(strings.crossing, player.crossing)
+                    SkillPill(strings.tackling, player.tackling)
+                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    SkillPill(strings.stamina, player.stamina)
                     SkillPill(strings.gkSkill, player.gkStat)
                 }
             }
@@ -307,14 +313,6 @@ fun PlayerDetailSheet(
 }
 
 @Composable
-private fun StatChip(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text = label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(text = value, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
-    }
-}
-
-@Composable
 private fun LinePowerBox(code: String, value: Int, color: Color, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
@@ -358,8 +356,7 @@ fun PlayerEditorDialog(
     var extraPositions by remember { mutableStateOf(initialPlayer.extraPositionList.toSet()) }
     var avatarGender by remember { mutableStateOf(AvatarGender.fromName(initialPlayer.avatarGender)) }
     var customImageUri by remember { mutableStateOf(initialPlayer.customImageUri) }
-    var heightCm by remember { mutableIntStateOf(initialPlayer.heightCm) }
-    var weightKg by remember { mutableIntStateOf(initialPlayer.weightKg) }
+    var customClubLogoUri by remember { mutableStateOf(initialPlayer.customClubLogoUri) }
     var preferredFoot by remember { mutableStateOf(PreferredFoot.fromCode(initialPlayer.preferredFoot)) }
 
     var pace by remember { mutableIntStateOf(initialPlayer.pace) }
@@ -368,6 +365,10 @@ fun PlayerEditorDialog(
     var dribbling by remember { mutableIntStateOf(initialPlayer.dribbling) }
     var defending by remember { mutableIntStateOf(initialPlayer.defending) }
     var physical by remember { mutableIntStateOf(initialPlayer.physical) }
+    var heading by remember { mutableIntStateOf(initialPlayer.heading) }
+    var crossing by remember { mutableIntStateOf(initialPlayer.crossing) }
+    var tackling by remember { mutableIntStateOf(initialPlayer.tackling) }
+    var stamina by remember { mutableIntStateOf(initialPlayer.stamina) }
     var gkStat by remember { mutableIntStateOf(initialPlayer.gkStat) }
 
     var powerGk by remember { mutableIntStateOf(initialPlayer.powerGk) }
@@ -384,6 +385,15 @@ fun PlayerEditorDialog(
         if (uri != null) {
             onPersistPhotoUri(uri)
             customImageUri = uri.toString()
+        }
+    }
+
+    val clubLogoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            onPersistPhotoUri(uri)
+            customClubLogoUri = uri.toString()
         }
     }
 
@@ -408,7 +418,7 @@ fun PlayerEditorDialog(
                     color = cs.onBackground
                 )
 
-                // Photo + Neutral Male/Female Avatar Switch
+                // Vertical Rectangular Portrait Preview + Blank Neutral Male/Female Avatar Switch
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -419,7 +429,7 @@ fun PlayerEditorDialog(
                         avatarGender = avatarGender,
                         contentDescription = name,
                         modifier = Modifier
-                            .size(72.dp)
+                            .size(width = 62.dp, height = 86.dp)
                             .clip(RoundedCornerShape(10.dp))
                             .border(2.dp, mainPos.line.color, RoundedCornerShape(10.dp))
                     )
@@ -452,7 +462,7 @@ fun PlayerEditorDialog(
                                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                 )
                             },
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                         ) {
                             Icon(Icons.Filled.PhotoLibrary, contentDescription = null, modifier = Modifier.size(15.dp))
                             Spacer(modifier = Modifier.width(4.dp))
@@ -507,13 +517,13 @@ fun PlayerEditorDialog(
                     }
                 }
 
-                // Club & League Quick Picker + Custom Text
+                // Club & League Quick Picker + Custom Text + Custom Club Logo from Internal Storage
                 Box {
                     OutlinedButton(
                         onClick = { showClubDropdown = true },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        ClubCrestBadge(clubName = club, size = 16.dp)
+                        ClubCrestBadge(clubName = club, customClubLogoUri = customClubLogoUri, size = 16.dp)
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("${strings.clubLabel}: $club ($league)")
                     }
@@ -549,6 +559,35 @@ fun PlayerEditorDialog(
                         singleLine = true,
                         modifier = Modifier.weight(1f)
                     )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ClubCrestBadge(
+                        clubName = club,
+                        customClubLogoUri = customClubLogoUri,
+                        size = 34.dp
+                    )
+                    OutlinedButton(
+                        onClick = {
+                            clubLogoPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.testTag("pick_club_logo_button")
+                    ) {
+                        Icon(Icons.Filled.PhotoLibrary, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(strings.pickClubLogo, fontSize = 11.sp)
+                    }
+                    if (!customClubLogoUri.isNullOrBlank()) {
+                        TextButton(onClick = { customClubLogoUri = null }) {
+                            Text(strings.clearClubLogo, fontSize = 11.sp)
+                        }
+                    }
                 }
 
                 // Main Position
@@ -612,10 +651,7 @@ fun PlayerEditorDialog(
                     }
                 }
 
-                // Height, Weight, Preferred Foot
-                StatSliderRow("${strings.heightLabel}: $heightCm ${strings.cmUnit}", heightCm, 150..210) { heightCm = it }
-                StatSliderRow("${strings.weightLabel}: $weightKg ${strings.kgUnit}", weightKg, 45..110) { weightKg = it }
-
+                // Preferred Foot (Height & Weight removed)
                 Text(strings.preferredFootLabel, style = MaterialTheme.typography.titleSmall, color = cs.onBackground)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(
@@ -639,22 +675,26 @@ fun PlayerEditorDialog(
                     }
                 }
 
-                // Customizable Powers by Pitch Line
+                // Customizable Powers by Pitch Line using + and - Tapping Controls
                 Text(strings.positionPowersTitle, style = MaterialTheme.typography.titleSmall, color = cs.onBackground)
-                StatSliderRow("GK: $powerGk", powerGk, 1..99, LineGkBlue) { powerGk = it }
-                StatSliderRow("DEF: $powerDef", powerDef, 1..99, LineDefGreen) { powerDef = it }
-                StatSliderRow("MID: $powerMid", powerMid, 1..99, LineMidYellow) { powerMid = it }
-                StatSliderRow("ATT: $powerAtt", powerAtt, 1..99, LineAttRed) { powerAtt = it }
+                PowerStepperRow("GK", powerGk, LineGkBlue) { powerGk = it }
+                PowerStepperRow("DEF", powerDef, LineDefGreen) { powerDef = it }
+                PowerStepperRow("MID", powerMid, LineMidYellow) { powerMid = it }
+                PowerStepperRow("ATT", powerAtt, LineAttRed) { powerAtt = it }
 
-                // Individual Skills
+                // Individual Skills using + and - Tapping Controls (includes Heading, Crossing, Tackling)
                 Text(strings.skillsTitle, style = MaterialTheme.typography.titleSmall, color = cs.onBackground)
-                StatSliderRow("${strings.pace}: $pace", pace, 1..99) { pace = it }
-                StatSliderRow("${strings.shooting}: $shooting", shooting, 1..99) { shooting = it }
-                StatSliderRow("${strings.passing}: $passing", passing, 1..99) { passing = it }
-                StatSliderRow("${strings.dribbling}: $dribbling", dribbling, 1..99) { dribbling = it }
-                StatSliderRow("${strings.defending}: $defending", defending, 1..99) { defending = it }
-                StatSliderRow("${strings.physical}: $physical", physical, 1..99) { physical = it }
-                StatSliderRow("${strings.gkSkill}: $gkStat", gkStat, 1..99) { gkStat = it }
+                PowerStepperRow(strings.pace, pace) { pace = it }
+                PowerStepperRow(strings.shooting, shooting) { shooting = it }
+                PowerStepperRow(strings.passing, passing) { passing = it }
+                PowerStepperRow(strings.dribbling, dribbling) { dribbling = it }
+                PowerStepperRow(strings.defending, defending) { defending = it }
+                PowerStepperRow(strings.physical, physical) { physical = it }
+                PowerStepperRow(strings.heading, heading) { heading = it }
+                PowerStepperRow(strings.crossing, crossing) { crossing = it }
+                PowerStepperRow(strings.tackling, tackling) { tackling = it }
+                PowerStepperRow(strings.stamina, stamina) { stamina = it }
+                PowerStepperRow(strings.gkSkill, gkStat) { gkStat = it }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -679,8 +719,7 @@ fun PlayerEditorDialog(
                                     secondaryPositions = extraPositions.joinToString(",") { it.code },
                                     avatarGender = avatarGender.name,
                                     customImageUri = customImageUri,
-                                    heightCm = heightCm,
-                                    weightKg = weightKg,
+                                    customClubLogoUri = customClubLogoUri,
                                     preferredFoot = preferredFoot.code,
                                     pace = pace,
                                     shooting = shooting,
@@ -688,6 +727,10 @@ fun PlayerEditorDialog(
                                     dribbling = dribbling,
                                     defending = defending,
                                     physical = physical,
+                                    heading = heading,
+                                    crossing = crossing,
+                                    tackling = tackling,
+                                    stamina = stamina,
                                     gkStat = gkStat,
                                     powerGk = powerGk,
                                     powerDef = powerDef,
@@ -707,31 +750,206 @@ fun PlayerEditorDialog(
     }
 }
 
+/**
+ * Tap + and - Stepper Row for adjusting powers (no sliding).
+ */
 @Composable
-private fun StatSliderRow(
+private fun PowerStepperRow(
     label: String,
     value: Int,
-    range: IntRange,
     accent: Color = FifOrange,
     onChange: (Int) -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(text = label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onBackground)
-        Slider(
-            value = value.toFloat(),
-            onValueChange = { onChange(it.roundToInt().coerceIn(range)) },
-            valueRange = range.first.toFloat()..range.last.toFloat(),
-            colors = SliderDefaults.colors(
-                thumbColor = accent,
-                activeTrackColor = accent
-            ),
-            modifier = Modifier.height(30.dp)
+    val cs = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(cs.surface)
+            .border(1.dp, cs.outline, RoundedCornerShape(8.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.titleSmall,
+            color = cs.onSurface,
+            modifier = Modifier.weight(1f)
         )
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(cs.surfaceVariant)
+                    .border(1.dp, accent, CircleShape)
+                    .clickable { onChange((value - 1).coerceIn(1, 99)) }
+                    .testTag("stepper_minus_$label"),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Remove,
+                    contentDescription = "Decrease $label",
+                    tint = cs.onSurface,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            Text(
+                text = value.toString(),
+                color = accent,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 16.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.width(30.dp)
+            )
+
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(accent)
+                    .clickable { onChange((value + 1).coerceIn(1, 99)) }
+                    .testTag("stepper_plus_$label"),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Add,
+                    contentDescription = "Increase $label",
+                    tint = if (accent == LineMidYellow) Color.Black else Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun SaveFormationDialog(
+    defaultName: String,
+    onSave: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val strings = LocalAppStrings.current
+    var name by remember { mutableStateOf(defaultName) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(strings.saveFormation) },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text(strings.formationNameLabel) },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("save_formation_name_input")
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSave(name) },
+                colors = ButtonDefaults.buttonColors(containerColor = FifOrange),
+                modifier = Modifier.testTag("confirm_save_formation")
+            ) {
+                Text(strings.save)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(strings.cancel)
+            }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SavedFormationsSheet(
+    savedFormations: List<SavedFormationEntity>,
+    onLoadFormation: (SavedFormationEntity) -> Unit,
+    onDeleteFormation: (Long) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val strings = LocalAppStrings.current
+    val cs = MaterialTheme.colorScheme
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = cs.background
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            Text(
+                text = strings.savedFormations,
+                style = MaterialTheme.typography.headlineSmall,
+                color = cs.onBackground
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            if (savedFormations.isEmpty()) {
+                Text(
+                    text = strings.noSavedFormations,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = cs.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 24.dp)
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.height(280.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(savedFormations, key = { it.id }) { item ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(cs.surface)
+                                .border(1.dp, cs.outline, RoundedCornerShape(10.dp))
+                                .clickable { onLoadFormation(item) }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Bookmark,
+                                contentDescription = null,
+                                tint = FifOrange,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = item.name,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = cs.onSurface
+                                )
+                                Text(
+                                    text = item.baseFormationId.replace("_", " "),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = cs.onSurfaceVariant
+                                )
+                            }
+                            IconButton(onClick = { onDeleteFormation(item.id) }) {
+                                Icon(Icons.Filled.Delete, contentDescription = strings.delete, tint = cs.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        }
     }
 }
 
 /**
- * Coach Card Editor: ONLY Name, Nationality & local Photo customizable per specification.
+ * Coach Card Editor: ONLY Name, Nationality & local Photo customizable.
  */
 @Composable
 fun CoachEditorDialog(

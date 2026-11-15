@@ -6,7 +6,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.drag
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -14,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -30,16 +30,24 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkAdd
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.SportsSoccer
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -57,11 +65,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -78,14 +88,20 @@ import com.example.ui.SlotContext
 import com.example.ui.components.CoachPitchCard
 import com.example.ui.components.EmptyPitchSlot
 import com.example.ui.components.FootballPitchCanvas
-import com.example.ui.components.SquarePitchPlayerCard
+import com.example.ui.components.VERTICAL_CARD_RATIO
+import com.example.ui.components.VerticalPitchPlayerCard
 import com.example.ui.theme.FifOrange
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
 private data class ActiveDragState(
     val sourceSlot: SlotContext,
-    val pointerRootOffset: Offset,
+    val cardCenterRootOffset: Offset,
+    val draggedCardWidth: Dp,
+    val draggedCardHeight: Dp,
     val hoveredTargetKey: String?
 )
 
@@ -95,8 +111,14 @@ fun PitchLineupScreen(
     onSetMatchMode: (Boolean) -> Unit,
     onSetActiveMatchSide: (TeamSide) -> Unit,
     onSelectFormation: (TeamSide, String) -> Unit,
+    onOpenSaveFormation: () -> Unit,
+    onOpenSavedFormations: () -> Unit,
     onSelectPitchTheme: (PitchTheme) -> Unit,
     onSlotTap: (SlotContext) -> Unit,
+    onHoldForArrows: (SlotContext) -> Unit,
+    onNudgeSlot: (String, Float, Float) -> Unit,
+    onResetSlotPosition: (String) -> Unit,
+    onFinishRepositioning: () -> Unit,
     onSwapSlots: (String, String) -> Unit,
     onInspectSelected: () -> Unit,
     onCancelSelection: () -> Unit,
@@ -110,7 +132,6 @@ fun PitchLineupScreen(
     val isMatchMode = uiState.prefs.isMatchMode
     val activeSide = if (isMatchMode) uiState.activeMatchSide else TeamSide.HOME
 
-    // Root bounds & slot hit-boxes for fast zero-allocation Drag-and-Drop
     var rootTopLeft by remember { mutableStateOf(Offset.Zero) }
     val slotBounds = remember { mutableStateMapOf<String, Rect>() }
     var activeDrag by remember { mutableStateOf<ActiveDragState?>(null) }
@@ -120,11 +141,40 @@ fun PitchLineupScreen(
 
     val activeFormation = if (activeSide == TeamSide.HOME) uiState.homeFormation else uiState.awayFormation
     val activeSubs = if (activeSide == TeamSide.HOME) uiState.homeSubSlots else uiState.awaySubSlots
+    val density = LocalDensity.current
 
-    fun findHoveredSlotKey(rootOffset: Offset, sourceKey: String): String? {
-        return slotBounds.entries.firstOrNull { (key, rect) ->
-            key != sourceKey && rect.contains(rootOffset)
+    fun findHoveredSlotKey(cardCenterRoot: Offset, cardW: Dp, cardH: Dp, sourceKey: String): String? {
+        val halfW = with(density) { (cardW / 2).toPx() }
+        val halfH = with(density) { (cardH / 2).toPx() }
+        val dragRect = Rect(
+            left = cardCenterRoot.x - halfW,
+            top = cardCenterRoot.y - halfH,
+            right = cardCenterRoot.x + halfW,
+            bottom = cardCenterRoot.y + halfH
+        )
+        // Prefer slot directly under dragged card center, otherwise maximum overlap area
+        val directHit = slotBounds.entries.firstOrNull { (key, rect) ->
+            key != sourceKey && rect.contains(cardCenterRoot)
         }?.key
+        if (directHit != null) return directHit
+
+        var bestKey: String? = null
+        var bestArea = 0f
+        for ((key, rect) in slotBounds) {
+            if (key == sourceKey) continue
+            val interLeft = maxOf(dragRect.left, rect.left)
+            val interTop = maxOf(dragRect.top, rect.top)
+            val interRight = minOf(dragRect.right, rect.right)
+            val interBottom = minOf(dragRect.bottom, rect.bottom)
+            if (interRight > interLeft && interBottom > interTop) {
+                val area = (interRight - interLeft) * (interBottom - interTop)
+                if (area > bestArea) {
+                    bestArea = area
+                    bestKey = key
+                }
+            }
+        }
+        return bestKey
     }
 
     Box(
@@ -143,9 +193,9 @@ fun PitchLineupScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(cs.surface)
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                        .padding(horizontal = 8.dp, vertical = 5.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     // 1 Team vs 2 Teams Match Mode Toggle
                     Surface(
@@ -162,26 +212,25 @@ fun PitchLineupScreen(
                             .testTag("match_mode_toggle")
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.SportsSoccer,
                                 contentDescription = null,
                                 tint = if (isMatchMode) Color.White else FifOrange,
-                                modifier = Modifier.size(15.dp)
+                                modifier = Modifier.size(14.dp)
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
                             Text(
                                 text = if (isMatchMode) strings.matchMode else strings.singleTeamMode,
-                                style = MaterialTheme.typography.labelMedium,
+                                style = MaterialTheme.typography.labelSmall,
                                 color = if (isMatchMode) Color.White else cs.onSurface
                             )
                         }
                     }
 
                     if (isMatchMode) {
-                        // Home / Away active team pill
                         Row(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
@@ -196,7 +245,7 @@ fun PitchLineupScreen(
                                         .clip(RoundedCornerShape(7.dp))
                                         .background(if (selected) FifOrange else Color.Transparent)
                                         .clickable { onSetActiveMatchSide(side) }
-                                        .padding(horizontal = 7.dp, vertical = 6.dp)
+                                        .padding(horizontal = 6.dp, vertical = 6.dp)
                                         .testTag("match_side_${side.name}")
                                 ) {
                                     Text(
@@ -221,19 +270,19 @@ fun PitchLineupScreen(
                                 .testTag("formation_picker_button")
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
                                     text = activeFormation.name,
-                                    style = MaterialTheme.typography.labelMedium,
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = cs.onSurface
                                 )
                                 Icon(
                                     imageVector = Icons.Filled.ExpandMore,
                                     contentDescription = strings.formation,
                                     tint = FifOrange,
-                                    modifier = Modifier.size(16.dp)
+                                    modifier = Modifier.size(15.dp)
                                 )
                             }
                         }
@@ -260,9 +309,60 @@ fun PitchLineupScreen(
                         }
                     }
 
+                    // Save Formation locally
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = cs.surfaceVariant,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(1.dp, cs.outline, RoundedCornerShape(8.dp))
+                            .clickable(onClick = onOpenSaveFormation)
+                            .testTag("save_formation_button")
+                    ) {
+                        Box(
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.BookmarkAdd,
+                                contentDescription = strings.saveFormation,
+                                tint = FifOrange,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+
+                    // Load Saved Formations from local storage
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = cs.surfaceVariant,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(1.dp, cs.outline, RoundedCornerShape(8.dp))
+                            .clickable(onClick = onOpenSavedFormations)
+                            .testTag("saved_formations_button")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Bookmark,
+                                contentDescription = strings.savedFormations,
+                                tint = FifOrange,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(2.dp))
+                            Text(
+                                text = "${uiState.savedFormations.size}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = cs.onSurface
+                            )
+                        }
+                    }
+
                     Spacer(modifier = Modifier.weight(1f))
 
-                    // Team OVR badge (in single team mode)
                     if (!isMatchMode) {
                         Surface(
                             shape = RoundedCornerShape(8.dp),
@@ -270,9 +370,9 @@ fun PitchLineupScreen(
                         ) {
                             Text(
                                 text = "${strings.teamPower} ${uiState.homeAveragePower}",
-                                style = MaterialTheme.typography.labelMedium,
+                                style = MaterialTheme.typography.labelSmall,
                                 color = cs.onPrimaryContainer,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 5.dp)
                             )
                         }
                     }
@@ -288,9 +388,9 @@ fun PitchLineupScreen(
                                 .clickable { showPitchMenu = true }
                                 .testTag("pitch_color_button")
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            Box(
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 6.dp),
+                                contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     imageVector = Icons.Filled.Palette,
@@ -332,8 +432,42 @@ fun PitchLineupScreen(
                     }
                 }
 
-                // Selection / Swap Action Banner OR Tip Strip
-                if (uiState.selectedSlotKey != null) {
+                // Active Mode Banner (Repositioning with Arrows / Tap-to-Swap / Tip)
+                val repoKey = uiState.repositioningSlotKey
+                if (repoKey != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(FifOrange)
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Filled.OpenWith, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(strings.repositionHint, color = Color.White, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                        }
+                        Row {
+                            TextButton(
+                                onClick = { onResetSlotPosition(repoKey) },
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Icon(Icons.Filled.RestartAlt, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text(strings.resetPosition, color = Color.White, fontSize = 11.sp)
+                            }
+                            TextButton(
+                                onClick = onFinishRepositioning,
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Icon(Icons.Filled.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text(strings.done, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                } else if (uiState.selectedSlotKey != null) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -394,61 +528,92 @@ fun PitchLineupScreen(
                     )
                 }
 
-                // Responsive Pitch + Infinite Substitutions Layout
+                // Responsive Vertical Rectangular Pitch + Infinite Substitutions Layout
                 if (isWideScreen) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
                             .padding(6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        PitchArea(
-                            uiState = uiState,
-                            isMatchMode = isMatchMode,
-                            activeDrag = activeDrag,
-                            onSlotPositioned = { key, rect -> slotBounds[key] = rect },
-                            onSlotTap = onSlotTap,
-                            onDragStart = { slot, rootPt ->
-                                activeDrag = ActiveDragState(slot, rootPt, findHoveredSlotKey(rootPt, slot.slotKey))
-                            },
-                            onDragMove = { rootPt ->
-                                activeDrag?.let { curr ->
-                                    activeDrag = curr.copy(
-                                        pointerRootOffset = rootPt,
-                                        hoveredTargetKey = findHoveredSlotKey(rootPt, curr.sourceSlot.slotKey)
-                                    )
-                                }
-                            },
-                            onDragEnd = {
-                                val d = activeDrag
-                                activeDrag = null
-                                if (d?.hoveredTargetKey != null) {
-                                    onSwapSlots(d.sourceSlot.slotKey, d.hoveredTargetKey)
-                                }
-                            },
-                            onCoachClick = onCoachClick,
+                        Box(
                             modifier = Modifier
                                 .weight(1.7f)
-                                .fillMaxHeight()
-                        )
+                                .fillMaxHeight(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            PitchArea(
+                                uiState = uiState,
+                                isMatchMode = isMatchMode,
+                                activeDrag = activeDrag,
+                                onSlotPositioned = { key, rect -> slotBounds[key] = rect },
+                                onSlotTap = onSlotTap,
+                                onHoldForArrows = onHoldForArrows,
+                                onNudgeSlot = onNudgeSlot,
+                                onDragStart = { slot, centerRoot, w, h ->
+                                    activeDrag = ActiveDragState(
+                                        sourceSlot = slot,
+                                        cardCenterRootOffset = centerRoot,
+                                        draggedCardWidth = w,
+                                        draggedCardHeight = h,
+                                        hoveredTargetKey = findHoveredSlotKey(centerRoot, w, h, slot.slotKey)
+                                    )
+                                },
+                                onDragMove = { centerRoot ->
+                                    activeDrag?.let { curr ->
+                                        activeDrag = curr.copy(
+                                            cardCenterRootOffset = centerRoot,
+                                            hoveredTargetKey = findHoveredSlotKey(
+                                                centerRoot,
+                                                curr.draggedCardWidth,
+                                                curr.draggedCardHeight,
+                                                curr.sourceSlot.slotKey
+                                            )
+                                        )
+                                    }
+                                },
+                                onDragEnd = {
+                                    val d = activeDrag
+                                    activeDrag = null
+                                    if (d?.hoveredTargetKey != null) {
+                                        onSwapSlots(d.sourceSlot.slotKey, d.hoveredTargetKey)
+                                    }
+                                },
+                                onCoachClick = onCoachClick,
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .aspectRatio(0.62f, matchHeightConstraintsFirst = true)
+                            )
+                        }
 
                         SubstitutionsBenchPane(
                             subs = activeSubs,
-                            side = activeSide,
                             selectedSlotKey = uiState.selectedSlotKey,
                             activeDrag = activeDrag,
                             isVertical = true,
                             onSlotPositioned = { key, rect -> slotBounds[key] = rect },
                             onSlotTap = onSlotTap,
-                            onDragStart = { slot, rootPt ->
-                                activeDrag = ActiveDragState(slot, rootPt, findHoveredSlotKey(rootPt, slot.slotKey))
+                            onDragStart = { slot, centerRoot, w, h ->
+                                activeDrag = ActiveDragState(
+                                    sourceSlot = slot,
+                                    cardCenterRootOffset = centerRoot,
+                                    draggedCardWidth = w,
+                                    draggedCardHeight = h,
+                                    hoveredTargetKey = findHoveredSlotKey(centerRoot, w, h, slot.slotKey)
+                                )
                             },
-                            onDragMove = { rootPt ->
+                            onDragMove = { centerRoot ->
                                 activeDrag?.let { curr ->
                                     activeDrag = curr.copy(
-                                        pointerRootOffset = rootPt,
-                                        hoveredTargetKey = findHoveredSlotKey(rootPt, curr.sourceSlot.slotKey)
+                                        cardCenterRootOffset = centerRoot,
+                                        hoveredTargetKey = findHoveredSlotKey(
+                                            centerRoot,
+                                            curr.draggedCardWidth,
+                                            curr.draggedCardHeight,
+                                            curr.sourceSlot.slotKey
+                                        )
                                     )
                                 }
                             },
@@ -470,55 +635,86 @@ fun PitchLineupScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(1f)
+                            .weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        PitchArea(
-                            uiState = uiState,
-                            isMatchMode = isMatchMode,
-                            activeDrag = activeDrag,
-                            onSlotPositioned = { key, rect -> slotBounds[key] = rect },
-                            onSlotTap = onSlotTap,
-                            onDragStart = { slot, rootPt ->
-                                activeDrag = ActiveDragState(slot, rootPt, findHoveredSlotKey(rootPt, slot.slotKey))
-                            },
-                            onDragMove = { rootPt ->
-                                activeDrag?.let { curr ->
-                                    activeDrag = curr.copy(
-                                        pointerRootOffset = rootPt,
-                                        hoveredTargetKey = findHoveredSlotKey(rootPt, curr.sourceSlot.slotKey)
-                                    )
-                                }
-                            },
-                            onDragEnd = {
-                                val d = activeDrag
-                                activeDrag = null
-                                if (d?.hoveredTargetKey != null) {
-                                    onSwapSlots(d.sourceSlot.slotKey, d.hoveredTargetKey)
-                                }
-                            },
-                            onCoachClick = onCoachClick,
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f)
-                                .padding(horizontal = 6.dp, vertical = 4.dp)
-                        )
+                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            PitchArea(
+                                uiState = uiState,
+                                isMatchMode = isMatchMode,
+                                activeDrag = activeDrag,
+                                onSlotPositioned = { key, rect -> slotBounds[key] = rect },
+                                onSlotTap = onSlotTap,
+                                onHoldForArrows = onHoldForArrows,
+                                onNudgeSlot = onNudgeSlot,
+                                onDragStart = { slot, centerRoot, w, h ->
+                                    activeDrag = ActiveDragState(
+                                        sourceSlot = slot,
+                                        cardCenterRootOffset = centerRoot,
+                                        draggedCardWidth = w,
+                                        draggedCardHeight = h,
+                                        hoveredTargetKey = findHoveredSlotKey(centerRoot, w, h, slot.slotKey)
+                                    )
+                                },
+                                onDragMove = { centerRoot ->
+                                    activeDrag?.let { curr ->
+                                        activeDrag = curr.copy(
+                                            cardCenterRootOffset = centerRoot,
+                                            hoveredTargetKey = findHoveredSlotKey(
+                                                centerRoot,
+                                                curr.draggedCardWidth,
+                                                curr.draggedCardHeight,
+                                                curr.sourceSlot.slotKey
+                                            )
+                                        )
+                                    }
+                                },
+                                onDragEnd = {
+                                    val d = activeDrag
+                                    activeDrag = null
+                                    if (d?.hoveredTargetKey != null) {
+                                        onSwapSlots(d.sourceSlot.slotKey, d.hoveredTargetKey)
+                                    }
+                                },
+                                onCoachClick = onCoachClick,
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .aspectRatio(0.64f, matchHeightConstraintsFirst = true)
+                            )
+                        }
 
                         SubstitutionsBenchPane(
                             subs = activeSubs,
-                            side = activeSide,
                             selectedSlotKey = uiState.selectedSlotKey,
                             activeDrag = activeDrag,
                             isVertical = false,
                             onSlotPositioned = { key, rect -> slotBounds[key] = rect },
                             onSlotTap = onSlotTap,
-                            onDragStart = { slot, rootPt ->
-                                activeDrag = ActiveDragState(slot, rootPt, findHoveredSlotKey(rootPt, slot.slotKey))
+                            onDragStart = { slot, centerRoot, w, h ->
+                                activeDrag = ActiveDragState(
+                                    sourceSlot = slot,
+                                    cardCenterRootOffset = centerRoot,
+                                    draggedCardWidth = w,
+                                    draggedCardHeight = h,
+                                    hoveredTargetKey = findHoveredSlotKey(centerRoot, w, h, slot.slotKey)
+                                )
                             },
-                            onDragMove = { rootPt ->
+                            onDragMove = { centerRoot ->
                                 activeDrag?.let { curr ->
                                     activeDrag = curr.copy(
-                                        pointerRootOffset = rootPt,
-                                        hoveredTargetKey = findHoveredSlotKey(rootPt, curr.sourceSlot.slotKey)
+                                        cardCenterRootOffset = centerRoot,
+                                        hoveredTargetKey = findHoveredSlotKey(
+                                            centerRoot,
+                                            curr.draggedCardWidth,
+                                            curr.draggedCardHeight,
+                                            curr.sourceSlot.slotKey
+                                        )
                                     )
                                 }
                             },
@@ -533,30 +729,31 @@ fun PitchLineupScreen(
                             onRemoveSubSlot = onRemoveSubSlot,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 6.dp, vertical = 4.dp)
+                                .padding(horizontal = 6.dp, vertical = 3.dp)
                         )
                     }
                 }
             }
 
-            // Floating Ghost Card following finger during Drag-and-Drop
+            // Floating Ghost Vertical Card following directly under finger for drop-over switching
             val drag = activeDrag
             val draggedPlayer = drag?.sourceSlot?.player
             if (drag != null && draggedPlayer != null) {
-                val localPt = drag.pointerRootOffset - rootTopLeft
-                val cardDp = 64.dp
-                val halfPx = with(LocalDensity.current) { (cardDp / 2).toPx() }
-                SquarePitchPlayerCard(
+                val localPt = drag.cardCenterRootOffset - rootTopLeft
+                val halfWPx = with(density) { (drag.draggedCardWidth / 2).toPx() }
+                val halfHPx = with(density) { (drag.draggedCardHeight / 2).toPx() }
+                VerticalPitchPlayerCard(
                     player = draggedPlayer,
                     slotPosition = drag.sourceSlot.slotPosition,
-                    cardSize = cardDp,
+                    cardWidth = drag.draggedCardWidth,
+                    cardHeight = drag.draggedCardHeight,
                     isSelected = true,
                     isDropTarget = false,
                     modifier = Modifier
                         .offset {
                             IntOffset(
-                                (localPt.x - halfPx).roundToInt(),
-                                (localPt.y - halfPx).roundToInt()
+                                (localPt.x - halfWPx).roundToInt(),
+                                (localPt.y - halfHPx).roundToInt()
                             )
                         }
                         .alpha(0.92f)
@@ -573,7 +770,9 @@ private fun PitchArea(
     activeDrag: ActiveDragState?,
     onSlotPositioned: (String, Rect) -> Unit,
     onSlotTap: (SlotContext) -> Unit,
-    onDragStart: (SlotContext, Offset) -> Unit,
+    onHoldForArrows: (SlotContext) -> Unit,
+    onNudgeSlot: (String, Float, Float) -> Unit,
+    onDragStart: (SlotContext, Offset, Dp, Dp) -> Unit,
     onDragMove: (Offset) -> Unit,
     onDragEnd: () -> Unit,
     onCoachClick: (TeamSide) -> Unit,
@@ -587,13 +786,16 @@ private fun PitchArea(
         val pitchWidthPx = constraints.maxWidth.toFloat()
         val pitchHeightPx = constraints.maxHeight.toFloat()
 
-        // Responsive card size for Snapdragon 662 phones & tablets across aspect ratios
-        val cardDp: Dp = if (isMatchMode) {
-            minOf(maxWidth / 7.4f, maxHeight / 9.2f).coerceIn(38.dp, 58.dp)
+        // Vertical rectangular card sizing fitted cleanly inside vertical pitch
+        val cardWidthDp: Dp = if (isMatchMode) {
+            minOf(maxWidth / 7.8f, maxHeight / 13.0f).coerceIn(32.dp, 48.dp)
         } else {
-            minOf(maxWidth / 5.7f, maxHeight / 6.3f).coerceIn(48.dp, 76.dp)
+            minOf(maxWidth / 5.7f, maxHeight / 8.5f).coerceIn(40.dp, 62.dp)
         }
-        val cardSizePx = with(LocalDensity.current) { cardDp.toPx() }
+        val cardHeightDp: Dp = cardWidthDp / VERTICAL_CARD_RATIO
+        val density = LocalDensity.current
+        val cardWpx = with(density) { cardWidthDp.toPx() }
+        val cardHpx = with(density) { cardHeightDp.toPx() }
 
         FootballPitchCanvas(
             pitchTheme = uiState.prefs.pitchTheme,
@@ -601,75 +803,206 @@ private fun PitchArea(
         )
 
         // Home XI Slots
-        val homeFormation = uiState.homeFormation
-        uiState.homeStarterSlots.forEachIndexed { idx, slot ->
-            val fSlot = homeFormation.slots.getOrNull(idx) ?: return@forEachIndexed
-            val nx = fSlot.x
-            // Single team: 0.08..0.92; Match mode: bottom half 0.54..0.93
-            val ny = if (isMatchMode) 0.54f + fSlot.y * 0.40f else fSlot.y
-            val px = (nx * pitchWidthPx - cardSizePx / 2f).coerceIn(4f, pitchWidthPx - cardSizePx - 4f)
-            val py = (ny * pitchHeightPx - cardSizePx / 2f).coerceIn(4f, pitchHeightPx - cardSizePx - 4f)
+        uiState.homeStarterSlots.forEach { slot ->
+            val nx = slot.x
+            val ny = if (isMatchMode) 0.54f + slot.y * 0.40f else slot.y
+            val px = (nx * pitchWidthPx - cardWpx / 2f).coerceIn(4f, pitchWidthPx - cardWpx - 4f)
+            val py = (ny * pitchHeightPx - cardHpx / 2f).coerceIn(4f, pitchHeightPx - cardHpx - 4f)
 
             PitchSlotItem(
                 slot = slot,
-                cardSize = cardDp,
+                cardWidth = cardWidthDp,
+                cardHeight = cardHeightDp,
                 isSelected = uiState.selectedSlotKey == slot.slotKey,
+                isRepositioning = uiState.repositioningSlotKey == slot.slotKey,
                 isDropTarget = activeDrag?.hoveredTargetKey == slot.slotKey,
                 isDraggedSource = activeDrag?.sourceSlot?.slotKey == slot.slotKey,
                 isAwayTeam = false,
                 onPositioned = { rect -> onSlotPositioned(slot.slotKey, rect) },
                 onTap = { onSlotTap(slot) },
-                onDragStart = { rootPt -> onDragStart(slot, rootPt) },
+                onHoldForArrows = { onHoldForArrows(slot) },
+                onDragStart = { centerRoot -> onDragStart(slot, centerRoot, cardWidthDp, cardHeightDp) },
                 onDragMove = onDragMove,
                 onDragEnd = onDragEnd,
                 modifier = Modifier.offset { IntOffset(px.roundToInt(), py.roundToInt()) }
             )
+
+            // Directional Arrows overlay around held card for manual repositioning
+            if (uiState.repositioningSlotKey == slot.slotKey) {
+                DirectionalArrowsOverlay(
+                    cardLeftPx = px,
+                    cardTopPx = py,
+                    cardWPx = cardWpx,
+                    cardHPx = cardHpx,
+                    pitchWPx = pitchWidthPx,
+                    pitchHPx = pitchHeightPx,
+                    onUp = { onNudgeSlot(slot.slotKey, 0f, -0.045f) },
+                    onDown = { onNudgeSlot(slot.slotKey, 0f, 0.045f) },
+                    onLeft = { onNudgeSlot(slot.slotKey, -0.045f, 0f) },
+                    onRight = { onNudgeSlot(slot.slotKey, 0.045f, 0f) }
+                )
+            }
         }
 
-        // Away XI Slots (Match Mode: 2 teams on one field pitch!)
+        // Away XI Slots (Match Mode: 2 teams on one vertical field pitch!)
         if (isMatchMode) {
-            val awayFormation = uiState.awayFormation
-            uiState.awayStarterSlots.forEachIndexed { idx, slot ->
-                val fSlot = awayFormation.slots.getOrNull(idx) ?: return@forEachIndexed
-                val nx = 1f - fSlot.x
-                // Away GK at top (y=0.07), Away strikers near halfway line (y=0.45)
-                val ny = 0.46f - fSlot.y * 0.40f
-                val px = (nx * pitchWidthPx - cardSizePx / 2f).coerceIn(4f, pitchWidthPx - cardSizePx - 4f)
-                val py = (ny * pitchHeightPx - cardSizePx / 2f).coerceIn(4f, pitchHeightPx - cardSizePx - 4f)
+            uiState.awayStarterSlots.forEach { slot ->
+                val nx = 1f - slot.x
+                val ny = 0.46f - slot.y * 0.40f
+                val px = (nx * pitchWidthPx - cardWpx / 2f).coerceIn(4f, pitchWidthPx - cardWpx - 4f)
+                val py = (ny * pitchHeightPx - cardHpx / 2f).coerceIn(4f, pitchHeightPx - cardHpx - 4f)
 
                 PitchSlotItem(
                     slot = slot,
-                    cardSize = cardDp,
+                    cardWidth = cardWidthDp,
+                    cardHeight = cardHeightDp,
                     isSelected = uiState.selectedSlotKey == slot.slotKey,
+                    isRepositioning = uiState.repositioningSlotKey == slot.slotKey,
                     isDropTarget = activeDrag?.hoveredTargetKey == slot.slotKey,
                     isDraggedSource = activeDrag?.sourceSlot?.slotKey == slot.slotKey,
                     isAwayTeam = true,
                     onPositioned = { rect -> onSlotPositioned(slot.slotKey, rect) },
                     onTap = { onSlotTap(slot) },
-                    onDragStart = { rootPt -> onDragStart(slot, rootPt) },
+                    onHoldForArrows = { onHoldForArrows(slot) },
+                    onDragStart = { centerRoot -> onDragStart(slot, centerRoot, cardWidthDp, cardHeightDp) },
                     onDragMove = onDragMove,
                     onDragEnd = onDragEnd,
                     modifier = Modifier.offset { IntOffset(px.roundToInt(), py.roundToInt()) }
                 )
+
+                if (uiState.repositioningSlotKey == slot.slotKey) {
+                    DirectionalArrowsOverlay(
+                        cardLeftPx = px,
+                        cardTopPx = py,
+                        cardWPx = cardWpx,
+                        cardHPx = cardHpx,
+                        pitchWPx = pitchWidthPx,
+                        pitchHPx = pitchHeightPx,
+                        onUp = { onNudgeSlot(slot.slotKey, 0f, 0.055f) },
+                        onDown = { onNudgeSlot(slot.slotKey, 0f, -0.055f) },
+                        onLeft = { onNudgeSlot(slot.slotKey, 0.055f, 0f) },
+                        onRight = { onNudgeSlot(slot.slotKey, -0.055f, 0f) }
+                    )
+                }
             }
 
-            // Away Coach Card at top-left in Match Mode
             CoachPitchCard(
                 coach = uiState.awayCoach,
                 onClick = { onCoachClick(TeamSide.AWAY) },
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(8.dp)
+                    .padding(6.dp)
             )
         }
 
-        // Home Coach Card on bottom-left of formation (Required by spec!)
+        // Home Coach Card on bottom-left of formation
         CoachPitchCard(
             coach = uiState.homeCoach,
             onClick = { onCoachClick(TeamSide.HOME) },
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(8.dp)
+                .padding(6.dp)
+        )
+    }
+}
+
+@Composable
+private fun DirectionalArrowsOverlay(
+    cardLeftPx: Float,
+    cardTopPx: Float,
+    cardWPx: Float,
+    cardHPx: Float,
+    pitchWPx: Float,
+    pitchHPx: Float,
+    onUp: () -> Unit,
+    onDown: () -> Unit,
+    onLeft: () -> Unit,
+    onRight: () -> Unit
+) {
+    val btnDp = 30.dp
+    val btnPx = with(LocalDensity.current) { btnDp.toPx() }
+    val cx = cardLeftPx + cardWPx / 2f
+    val cy = cardTopPx + cardHPx / 2f
+
+    // Up Arrow
+    ArrowButton(
+        icon = Icons.Filled.KeyboardArrowUp,
+        contentDescription = "Move Up",
+        onClick = onUp,
+        modifier = Modifier
+            .offset {
+                IntOffset(
+                    (cx - btnPx / 2f).coerceIn(2f, pitchWPx - btnPx - 2f).roundToInt(),
+                    (cardTopPx - btnPx - 2f).coerceIn(2f, pitchHPx - btnPx - 2f).roundToInt()
+                )
+            }
+            .testTag("arrow_move_up")
+    )
+    // Down Arrow
+    ArrowButton(
+        icon = Icons.Filled.KeyboardArrowDown,
+        contentDescription = "Move Down",
+        onClick = onDown,
+        modifier = Modifier
+            .offset {
+                IntOffset(
+                    (cx - btnPx / 2f).coerceIn(2f, pitchWPx - btnPx - 2f).roundToInt(),
+                    (cardTopPx + cardHPx + 2f).coerceIn(2f, pitchHPx - btnPx - 2f).roundToInt()
+                )
+            }
+            .testTag("arrow_move_down")
+    )
+    // Left Arrow
+    ArrowButton(
+        icon = Icons.Filled.KeyboardArrowLeft,
+        contentDescription = "Move Left",
+        onClick = onLeft,
+        modifier = Modifier
+            .offset {
+                IntOffset(
+                    (cardLeftPx - btnPx - 2f).coerceIn(2f, pitchWPx - btnPx - 2f).roundToInt(),
+                    (cy - btnPx / 2f).coerceIn(2f, pitchHPx - btnPx - 2f).roundToInt()
+                )
+            }
+            .testTag("arrow_move_left")
+    )
+    // Right Arrow
+    ArrowButton(
+        icon = Icons.Filled.KeyboardArrowRight,
+        contentDescription = "Move Right",
+        onClick = onRight,
+        modifier = Modifier
+            .offset {
+                IntOffset(
+                    (cardLeftPx + cardWPx + 2f).coerceIn(2f, pitchWPx - btnPx - 2f).roundToInt(),
+                    (cy - btnPx / 2f).coerceIn(2f, pitchHPx - btnPx - 2f).roundToInt()
+                )
+            }
+            .testTag("arrow_move_right")
+    )
+}
+
+@Composable
+private fun ArrowButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .size(30.dp)
+            .clip(CircleShape)
+            .background(FifOrange)
+            .border(1.5.dp, Color.White, CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = Color.White,
+            modifier = Modifier.size(20.dp)
         )
     }
 }
@@ -677,19 +1010,23 @@ private fun PitchArea(
 @Composable
 private fun PitchSlotItem(
     slot: SlotContext,
-    cardSize: Dp,
+    cardWidth: Dp,
+    cardHeight: Dp,
     isSelected: Boolean,
+    isRepositioning: Boolean,
     isDropTarget: Boolean,
     isDraggedSource: Boolean,
     isAwayTeam: Boolean,
     onPositioned: (Rect) -> Unit,
     onTap: () -> Unit,
+    onHoldForArrows: (() -> Unit)?,
     onDragStart: (Offset) -> Unit,
     onDragMove: (Offset) -> Unit,
     onDragEnd: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var slotTopLeft by remember { mutableStateOf(Offset.Zero) }
+    val haptic = LocalHapticFeedback.current
 
     val gestureMod = Modifier
         .onGloballyPositioned { coords ->
@@ -697,7 +1034,7 @@ private fun PitchSlotItem(
             slotTopLeft = bounds.topLeft
             onPositioned(bounds)
         }
-        .pointerInput(slot.slotKey, slot.player?.id) {
+        .pointerInput(slot.slotKey, slot.player?.id, onHoldForArrows != null) {
             val slop = viewConfiguration.touchSlop
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
@@ -707,7 +1044,6 @@ private fun PitchSlotItem(
                 var totalDy = 0f
 
                 if (slot.player == null) {
-                    // Empty slot: tap immediately on release
                     while (true) {
                         val event = awaitPointerEvent()
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
@@ -718,24 +1054,54 @@ private fun PitchSlotItem(
                         val d = change.position - startLocal
                         if (hypot(d.x, d.y) > slop * 2f) break
                     }
+                } else if (onHoldForArrows != null) {
+                    var released = false
+                    val withinHold = withTimeoutOrNull(420L) {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) {
+                                released = true
+                                break
+                            }
+                            val delta = change.positionChange()
+                            totalDx += delta.x
+                            totalDy += delta.y
+                            if (hypot(totalDx, totalDy) > slop) {
+                                dragging = true
+                                change.consume()
+                                onDragStart(slotTopLeft + change.position)
+                                break
+                            }
+                        }
+                        true
+                    }
+
+                    if (withinHold == null && !dragging && !released) {
+                        // Long-press hold completed without dragging -> show directional arrows
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onHoldForArrows()
+                    } else if (released) {
+                        onTap()
+                    } else if (dragging) {
+                        drag(down.id) { dragChange ->
+                            dragChange.consume()
+                            onDragMove(slotTopLeft + dragChange.position)
+                        }
+                        onDragEnd()
+                    }
                 } else {
-                    // Occupied slot: either tap (for tap-to-swap / edit) or immediate drag after slop!
                     while (true) {
                         val event = awaitPointerEvent()
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
                         if (!change.pressed) {
-                            if (dragging) {
-                                onDragEnd()
-                            } else {
-                                onTap()
-                            }
+                            onTap()
                             break
                         }
                         val delta = change.positionChange()
                         totalDx += delta.x
                         totalDy += delta.y
-                        if (!dragging && hypot(totalDx, totalDy) > slop) {
-                            dragging = true
+                        if (hypot(totalDx, totalDy) > slop) {
                             change.consume()
                             onDragStart(slotTopLeft + change.position)
                             drag(down.id) { dragChange ->
@@ -753,19 +1119,22 @@ private fun PitchSlotItem(
         .testTag("slot_${slot.slotKey}")
 
     if (slot.player != null) {
-        SquarePitchPlayerCard(
+        VerticalPitchPlayerCard(
             player = slot.player,
             slotPosition = slot.slotPosition,
-            cardSize = cardSize,
+            cardWidth = cardWidth,
+            cardHeight = cardHeight,
             isSelected = isSelected,
             isDropTarget = isDropTarget,
+            isRepositioning = isRepositioning,
             isTeamAwayBadge = isAwayTeam,
             modifier = modifier.then(gestureMod)
         )
     } else {
         EmptyPitchSlot(
             slotPosition = slot.slotPosition,
-            cardSize = cardSize,
+            cardWidth = cardWidth,
+            cardHeight = cardHeight,
             isDropTarget = isDropTarget,
             modifier = modifier.then(gestureMod)
         )
@@ -775,13 +1144,12 @@ private fun PitchSlotItem(
 @Composable
 private fun SubstitutionsBenchPane(
     subs: List<SlotContext>,
-    side: TeamSide,
     selectedSlotKey: String?,
     activeDrag: ActiveDragState?,
     isVertical: Boolean,
     onSlotPositioned: (String, Rect) -> Unit,
     onSlotTap: (SlotContext) -> Unit,
-    onDragStart: (SlotContext, Offset) -> Unit,
+    onDragStart: (SlotContext, Offset, Dp, Dp) -> Unit,
     onDragMove: (Offset) -> Unit,
     onDragEnd: () -> Unit,
     onAddSubSlot: () -> Unit,
@@ -790,6 +1158,8 @@ private fun SubstitutionsBenchPane(
 ) {
     val strings = LocalAppStrings.current
     val cs = MaterialTheme.colorScheme
+    val subW = 46.dp
+    val subH = subW / VERTICAL_CARD_RATIO
 
     Surface(
         shape = RoundedCornerShape(12.dp),
@@ -819,6 +1189,8 @@ private fun SubstitutionsBenchPane(
                     subs.forEach { slot ->
                         SubSlotWrapper(
                             slot = slot,
+                            cardWidth = subW,
+                            cardHeight = subH,
                             canDelete = subs.size > 1 && slot.player == null,
                             selectedSlotKey = selectedSlotKey,
                             activeDrag = activeDrag,
@@ -832,13 +1204,13 @@ private fun SubstitutionsBenchPane(
                     }
                 }
                 Spacer(modifier = Modifier.height(6.dp))
-                AddSubButton(onClick = onAddSubSlot, label = strings.addSubSlot)
+                AddSubButton(onClick = onAddSubSlot, label = strings.addSubSlot, width = subW, height = subH)
             }
         } else {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                    .padding(horizontal = 8.dp, vertical = 5.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.padding(end = 8.dp)) {
@@ -862,6 +1234,8 @@ private fun SubstitutionsBenchPane(
                     items(subs, key = { it.slotKey }) { slot ->
                         SubSlotWrapper(
                             slot = slot,
+                            cardWidth = subW,
+                            cardHeight = subH,
                             canDelete = subs.size > 1 && slot.player == null,
                             selectedSlotKey = selectedSlotKey,
                             activeDrag = activeDrag,
@@ -874,7 +1248,7 @@ private fun SubstitutionsBenchPane(
                         )
                     }
                     item {
-                        AddSubButton(onClick = onAddSubSlot, label = strings.addSubSlot)
+                        AddSubButton(onClick = onAddSubSlot, label = strings.addSubSlot, width = subW, height = subH)
                     }
                 }
             }
@@ -885,12 +1259,14 @@ private fun SubstitutionsBenchPane(
 @Composable
 private fun SubSlotWrapper(
     slot: SlotContext,
+    cardWidth: Dp,
+    cardHeight: Dp,
     canDelete: Boolean,
     selectedSlotKey: String?,
     activeDrag: ActiveDragState?,
     onSlotPositioned: (String, Rect) -> Unit,
     onSlotTap: (SlotContext) -> Unit,
-    onDragStart: (SlotContext, Offset) -> Unit,
+    onDragStart: (SlotContext, Offset, Dp, Dp) -> Unit,
     onDragMove: (Offset) -> Unit,
     onDragEnd: () -> Unit,
     onRemove: () -> Unit
@@ -898,14 +1274,17 @@ private fun SubSlotWrapper(
     Box {
         PitchSlotItem(
             slot = slot,
-            cardSize = 56.dp,
+            cardWidth = cardWidth,
+            cardHeight = cardHeight,
             isSelected = selectedSlotKey == slot.slotKey,
+            isRepositioning = false,
             isDropTarget = activeDrag?.hoveredTargetKey == slot.slotKey,
             isDraggedSource = activeDrag?.sourceSlot?.slotKey == slot.slotKey,
             isAwayTeam = slot.teamSide == TeamSide.AWAY,
             onPositioned = { rect -> onSlotPositioned(slot.slotKey, rect) },
             onTap = { onSlotTap(slot) },
-            onDragStart = { rootPt -> onDragStart(slot, rootPt) },
+            onHoldForArrows = null,
+            onDragStart = { centerRoot -> onDragStart(slot, centerRoot, cardWidth, cardHeight) },
             onDragMove = onDragMove,
             onDragEnd = onDragEnd
         )
@@ -913,7 +1292,7 @@ private fun SubSlotWrapper(
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .size(18.dp)
+                    .size(16.dp)
                     .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.78f))
                     .clickable(onClick = onRemove),
@@ -923,7 +1302,7 @@ private fun SubSlotWrapper(
                     imageVector = Icons.Filled.Close,
                     contentDescription = "Remove sub slot",
                     tint = Color.White,
-                    modifier = Modifier.size(11.dp)
+                    modifier = Modifier.size(10.dp)
                 )
             }
         }
@@ -933,13 +1312,15 @@ private fun SubSlotWrapper(
 @Composable
 private fun AddSubButton(
     onClick: () -> Unit,
-    label: String
+    label: String,
+    width: Dp,
+    height: Dp
 ) {
     Surface(
         shape = RoundedCornerShape(8.dp),
         color = FifOrange.copy(alpha = 0.16f),
         modifier = Modifier
-            .size(width = 58.dp, height = 56.dp)
+            .size(width = width, height = height)
             .clip(RoundedCornerShape(8.dp))
             .border(1.5.dp, FifOrange, RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
