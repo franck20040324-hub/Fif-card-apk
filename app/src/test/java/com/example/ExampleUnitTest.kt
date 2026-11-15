@@ -2,6 +2,8 @@ package com.example
 
 import com.example.data.local.FifProSeedData
 import com.example.data.local.PlayerEntity
+import com.example.model.AbilityNicknameCatalog
+import com.example.model.AppLanguage
 import com.example.model.AvatarGender
 import com.example.model.FormationCatalog
 import com.example.model.PlayingLine
@@ -21,37 +23,57 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun fifProSeedIncludesHeadingCrossingTacklingAndResetsCleanly() {
+    fun fifProSeedIncludesAbilitiesFiveExtraPositionsAndManagers() {
         val seed = FifProSeedData.initialPlayers()
         assertTrue(seed.size >= 50)
         assertTrue(seed.any { it.avatarGender == AvatarGender.MALE.name })
         assertTrue(seed.any { it.avatarGender == AvatarGender.FEMALE.name })
         assertTrue(seed.all { it.heading in 1..99 && it.crossing in 1..99 && it.tackling in 1..99 && it.stamina in 1..99 })
+        assertTrue(seed.all { it.abilityNicknameList.isNotEmpty() })
 
         val sample = seed.first { it.mainPosition == "ST" }
         val originalAttPower = sample.powerAtt
         val originalHeading = sample.heading
         val originalStamina = sample.stamina
-        val customized = sample.copy(powerAtt = 99, powerGk = 99, heading = 10, stamina = 12)
+        val originalAbilities = sample.abilityNicknames
+        val customized = sample.copy(
+            powerAtt = 99,
+            powerGk = 99,
+            heading = 10,
+            stamina = 12,
+            abilityNicknames = "Custom"
+        )
         val restored = customized.restoredFromSnapshot()
         assertEquals(originalAttPower, restored.powerAtt)
         assertEquals(originalHeading, restored.heading)
         assertEquals(originalStamina, restored.stamina)
+        assertEquals(originalAbilities, restored.abilityNicknames)
 
-        val customCard = PlayerEntity(
-            name = "Custom Star",
+        val fiveExtrasCard = PlayerEntity(
+            name = "Utility Star",
             nationality = "Morocco",
-            flagEmoji = "",
             club = "Custom FC",
             league = "Custom",
-            mainPosition = "CAM",
+            mainPosition = "CM",
+            secondaryPositions = "CDM,CAM,LCM,RCM,RM,LM",
+            abilityNicknames = "Box-to-Box,Deep-Lying Playmaker",
             powerMid = 95,
-            heading = 84,
-            crossing = 88,
-            tackling = 62,
             isBuiltIn = false
         )
-        assertEquals("Morocco", customCard.nationality)
-        assertEquals(95, customCard.restoredFromSnapshot().powerForLine(PlayingLine.MID))
+        assertEquals(5, fiveExtrasCard.extraPositionList.size)
+        assertEquals("Morocco", fiveExtrasCard.nationality)
+        assertEquals(95, fiveExtrasCard.restoredFromSnapshot().powerForLine(PlayingLine.MID))
+        assertEquals(
+            "Box-to-Box",
+            AbilityNicknameCatalog.displayName(fiveExtrasCard.abilityNicknameList.first(), AppLanguage.ENGLISH)
+        )
+        assertEquals(
+            "محور شامل",
+            AbilityNicknameCatalog.displayName(fiveExtrasCard.abilityNicknameList.first(), AppLanguage.ARABIC)
+        )
+
+        val coaches = FifProSeedData.initialCoaches()
+        assertTrue(coaches.size >= 15)
+        assertTrue(coaches.all { it.name.isNotBlank() && it.nationality.isNotBlank() && it.isBuiltIn })
     }
 }

@@ -62,9 +62,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -73,6 +75,7 @@ import com.example.data.local.CoachEntity
 import com.example.data.local.PlayerEntity
 import com.example.data.local.SavedFormationEntity
 import com.example.i18n.LocalAppStrings
+import com.example.model.AbilityNicknameCatalog
 import com.example.model.AppLanguage
 import com.example.model.AvatarGender
 import com.example.model.ClubCatalog
@@ -90,7 +93,7 @@ import com.example.ui.theme.LineDefGreen
 import com.example.ui.theme.LineGkBlue
 import com.example.ui.theme.LineMidYellow
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun PlayerDetailSheet(
     slotContext: SlotContext,
@@ -103,6 +106,7 @@ fun PlayerDetailSheet(
     val strings = LocalAppStrings.current
     val cs = MaterialTheme.colorScheme
     val lineColor = player.mainLine.color
+    val appLang = if (LocalLayoutDirection.current == LayoutDirection.Rtl) AppLanguage.ARABIC else AppLanguage.ENGLISH
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -140,8 +144,11 @@ fun PlayerDetailSheet(
                     }
                     if (player.extraPositionList.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(4.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            player.extraPositionList.forEach { extra ->
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            player.extraPositionList.take(5).forEach { extra ->
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(4.dp))
@@ -209,6 +216,37 @@ fun PlayerDetailSheet(
                         .clip(RoundedCornerShape(12.dp))
                         .border(2.5.dp, lineColor, RoundedCornerShape(12.dp))
                 )
+            }
+
+            if (player.abilityNicknameList.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text(
+                        text = strings.abilityNicknamesLabel,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = cs.onBackground
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        player.abilityNicknameList.forEach { raw ->
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(FifOrange.copy(alpha = 0.16f))
+                                    .border(1.dp, FifOrange, RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = AbilityNicknameCatalog.displayName(raw, appLang),
+                                    color = FifOrange,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             // Position-Based Powers
@@ -340,14 +378,17 @@ fun PlayerEditorDialog(
 ) {
     val strings = LocalAppStrings.current
     val cs = MaterialTheme.colorScheme
+    val appLang = if (LocalLayoutDirection.current == LayoutDirection.Rtl) AppLanguage.ARABIC else AppLanguage.ENGLISH
 
     var name by remember { mutableStateOf(initialPlayer.name) }
     var nickname by remember { mutableStateOf(initialPlayer.nickname) }
+    var selectedAbilities by remember { mutableStateOf(initialPlayer.abilityNicknameList.toSet()) }
+    var customAbilityInput by remember { mutableStateOf("") }
     var nationality by remember { mutableStateOf(initialPlayer.nationality) }
     var club by remember { mutableStateOf(initialPlayer.club) }
     var league by remember { mutableStateOf(initialPlayer.league) }
     var mainPos by remember { mutableStateOf(initialPlayer.mainPositionCode) }
-    var extraPositions by remember { mutableStateOf(initialPlayer.extraPositionList.toSet()) }
+    var extraPositions by remember { mutableStateOf(initialPlayer.extraPositionList.take(5).toSet()) }
     var avatarGender by remember { mutableStateOf(AvatarGender.fromName(initialPlayer.avatarGender)) }
     var customImageUri by remember { mutableStateOf(initialPlayer.customImageUri) }
     var customClubLogoUri by remember { mutableStateOf(initialPlayer.customClubLogoUri) }
@@ -597,8 +638,13 @@ fun PlayerEditorDialog(
                     }
                 }
 
-                // Left-Edge Extra Positions
-                Text(strings.extraPositionsLabel, style = MaterialTheme.typography.titleSmall, color = cs.onBackground)
+                // Left-Edge Secondary Positions (up to 5)
+                val cleanSelectedExtras = extraPositions.filter { it != mainPos }.take(5)
+                Text(
+                    text = "${strings.extraPositionsLabel} (${cleanSelectedExtras.size}/5)",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = cs.onBackground
+                )
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(5.dp),
                     verticalArrangement = Arrangement.spacedBy(5.dp)
@@ -613,10 +659,12 @@ fun PlayerEditorDialog(
                                 .clickable {
                                     extraPositions = if (selected) {
                                         extraPositions - pos
-                                    } else if (extraPositions.size < 3) {
-                                        extraPositions + pos
-                                    } else extraPositions
+                                    } else {
+                                        val active = extraPositions.filter { it != mainPos }.toSet()
+                                        if (active.size < 5) active + pos else active
+                                    }
                                 }
+                                .testTag("extra_pos_chip_${pos.code}")
                         ) {
                             Text(
                                 text = pos.code,
@@ -626,6 +674,106 @@ fun PlayerEditorDialog(
                                 modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
                             )
                         }
+                    }
+                }
+
+                // Soccer World Playing Ability & Position Nicknames
+                Text(strings.abilityNicknamesLabel, style = MaterialTheme.typography.titleSmall, color = cs.onBackground)
+                val customSelectedAbilities = selectedAbilities.filter { raw ->
+                    AbilityNicknameCatalog.all.none {
+                        it.id.equals(raw, ignoreCase = true) ||
+                            it.nameEn.equals(raw, ignoreCase = true) ||
+                            it.nameAr.equals(raw, ignoreCase = true)
+                    }
+                }
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    AbilityNicknameCatalog.all.forEach { ability ->
+                        val selected = selectedAbilities.any {
+                            it.equals(ability.nameEn, ignoreCase = true) ||
+                                it.equals(ability.id, ignoreCase = true) ||
+                                it.equals(ability.nameAr, ignoreCase = true)
+                        }
+                        val accent = ability.line?.color ?: FifOrange
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (selected) accent else cs.surfaceVariant,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .border(
+                                    1.dp,
+                                    if (selected) accent else cs.outline,
+                                    RoundedCornerShape(6.dp)
+                                )
+                                .clickable {
+                                    selectedAbilities = if (selected) {
+                                        selectedAbilities.filterNot {
+                                            it.equals(ability.nameEn, ignoreCase = true) ||
+                                                it.equals(ability.id, ignoreCase = true) ||
+                                                it.equals(ability.nameAr, ignoreCase = true)
+                                        }.toSet()
+                                    } else {
+                                        selectedAbilities + ability.nameEn
+                                    }
+                                }
+                                .testTag("ability_chip_${ability.id}")
+                        ) {
+                            Text(
+                                text = if (appLang == AppLanguage.ARABIC) ability.nameAr else ability.nameEn,
+                                color = if (selected && ability.line == PlayingLine.MID) Color.Black else if (selected) Color.White else cs.onSurface,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                    customSelectedAbilities.forEach { customRaw ->
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = FifOrange,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable { selectedAbilities = selectedAbilities - customRaw }
+                        ) {
+                            Text(
+                                text = "$customRaw ×",
+                                color = Color.White,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    OutlinedTextField(
+                        value = customAbilityInput,
+                        onValueChange = { customAbilityInput = it },
+                        placeholder = { Text(strings.customAbilityPlaceholder, fontSize = 12.sp, maxLines = 1) },
+                        singleLine = true,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("custom_ability_input")
+                    )
+                    Button(
+                        onClick = {
+                            val trimmed = customAbilityInput.trim()
+                            if (trimmed.isNotEmpty()) {
+                                selectedAbilities = selectedAbilities + trimmed
+                                customAbilityInput = ""
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = FifOrange),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                        modifier = Modifier.testTag("add_custom_ability_button")
+                    ) {
+                        Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                     }
                 }
 
@@ -685,16 +833,21 @@ fun PlayerEditorDialog(
                     Button(
                         onClick = {
                             val cleanName = name.trim().ifEmpty { "Player" }
+                            val finalExtras = extraPositions
+                                .filter { it != mainPos }
+                                .take(5)
+                                .joinToString(",") { it.code }
                             onSave(
                                 initialPlayer.copy(
                                     name = cleanName,
                                     nickname = nickname.trim(),
+                                    abilityNicknames = selectedAbilities.joinToString(","),
                                     nationality = nationality.trim().ifEmpty { "Custom" },
                                     flagEmoji = "",
                                     club = club.trim().ifEmpty { "FC" },
                                     league = league.trim().ifEmpty { "Custom" },
                                     mainPosition = mainPos.code,
-                                    secondaryPositions = extraPositions.joinToString(",") { it.code },
+                                    secondaryPositions = finalExtras,
                                     avatarGender = avatarGender.name,
                                     customImageUri = customImageUri,
                                     customClubLogoUri = customClubLogoUri,
@@ -953,7 +1106,9 @@ fun CoachEditorDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(strings.editCoach) },
+        title = {
+            Text(if (coach.id == 0L) strings.createNewManager else strings.editCoach)
+        },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(strings.coachNote, style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)

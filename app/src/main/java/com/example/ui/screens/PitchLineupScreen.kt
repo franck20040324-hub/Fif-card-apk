@@ -43,10 +43,11 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.RestartAlt
-import androidx.compose.material.icons.filled.SportsSoccer
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -74,15 +75,16 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.local.SavedFormationEntity
 import com.example.i18n.LocalAppStrings
 import com.example.model.AppLanguage
 import com.example.model.FormationCatalog
 import com.example.model.PitchTheme
-import com.example.model.TeamSide
 import com.example.ui.FifCardUiState
 import com.example.ui.SlotContext
 import com.example.ui.components.CoachPitchCard
@@ -91,9 +93,6 @@ import com.example.ui.components.FootballPitchCanvas
 import com.example.ui.components.VERTICAL_CARD_RATIO
 import com.example.ui.components.VerticalPitchPlayerCard
 import com.example.ui.theme.FifOrange
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
@@ -108,11 +107,11 @@ private data class ActiveDragState(
 @Composable
 fun PitchLineupScreen(
     uiState: FifCardUiState,
-    onSetMatchMode: (Boolean) -> Unit,
-    onSetActiveMatchSide: (TeamSide) -> Unit,
-    onSelectFormation: (TeamSide, String) -> Unit,
+    onSelectFormation: (String) -> Unit,
+    onLoadSavedFormation: (SavedFormationEntity) -> Unit,
     onOpenSaveFormation: () -> Unit,
     onOpenSavedFormations: () -> Unit,
+    onOpenCreateFormation: () -> Unit,
     onSelectPitchTheme: (PitchTheme) -> Unit,
     onSlotTap: (SlotContext) -> Unit,
     onHoldForArrows: (SlotContext) -> Unit,
@@ -122,15 +121,13 @@ fun PitchLineupScreen(
     onSwapSlots: (String, String) -> Unit,
     onInspectSelected: () -> Unit,
     onCancelSelection: () -> Unit,
-    onAddSubSlot: (TeamSide) -> Unit,
+    onAddSubSlot: () -> Unit,
     onRemoveSubSlot: (String) -> Unit,
-    onCoachClick: (TeamSide) -> Unit,
+    onCoachClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val strings = LocalAppStrings.current
     val cs = MaterialTheme.colorScheme
-    val isMatchMode = uiState.prefs.isMatchMode
-    val activeSide = if (isMatchMode) uiState.activeMatchSide else TeamSide.HOME
 
     var rootTopLeft by remember { mutableStateOf(Offset.Zero) }
     val slotBounds = remember { mutableStateMapOf<String, Rect>() }
@@ -139,8 +136,9 @@ fun PitchLineupScreen(
     var showFormationMenu by remember { mutableStateOf(false) }
     var showPitchMenu by remember { mutableStateOf(false) }
 
-    val activeFormation = if (activeSide == TeamSide.HOME) uiState.homeFormation else uiState.awayFormation
-    val activeSubs = if (activeSide == TeamSide.HOME) uiState.homeSubSlots else uiState.awaySubSlots
+    val activeFormation = uiState.homeFormation
+    val activeFormationTitle = uiState.prefs.activeFormationLabel.ifBlank { activeFormation.name }
+    val activeSubs = uiState.homeSubSlots
     val density = LocalDensity.current
 
     fun findHoveredSlotKey(cardCenterRoot: Offset, cardW: Dp, cardH: Dp, sourceKey: String): String? {
@@ -197,68 +195,7 @@ fun PitchLineupScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
-                    // 1 Team vs 2 Teams Match Mode Toggle
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (isMatchMode) FifOrange else cs.surfaceVariant,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .border(
-                                1.dp,
-                                if (isMatchMode) FifOrange else cs.outline,
-                                RoundedCornerShape(8.dp)
-                            )
-                            .clickable { onSetMatchMode(!isMatchMode) }
-                            .testTag("match_mode_toggle")
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.SportsSoccer,
-                                contentDescription = null,
-                                tint = if (isMatchMode) Color.White else FifOrange,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text(
-                                text = if (isMatchMode) strings.matchMode else strings.singleTeamMode,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (isMatchMode) Color.White else cs.onSurface
-                            )
-                        }
-                    }
-
-                    if (isMatchMode) {
-                        Row(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(cs.surfaceVariant)
-                                .border(1.dp, cs.outline, RoundedCornerShape(8.dp))
-                        ) {
-                            listOf(TeamSide.HOME, TeamSide.AWAY).forEach { side ->
-                                val selected = activeSide == side
-                                val avg = if (side == TeamSide.HOME) uiState.homeAveragePower else uiState.awayAveragePower
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(7.dp))
-                                        .background(if (selected) FifOrange else Color.Transparent)
-                                        .clickable { onSetActiveMatchSide(side) }
-                                        .padding(horizontal = 6.dp, vertical = 6.dp)
-                                        .testTag("match_side_${side.name}")
-                                ) {
-                                    Text(
-                                        text = if (side == TeamSide.HOME) "H:$avg" else "A:$avg",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = if (selected) Color.White else cs.onSurface
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    // Formation Dropdown
+                    // Formation Dropdown (presets + saved custom formations)
                     Box {
                         Surface(
                             shape = RoundedCornerShape(8.dp),
@@ -270,13 +207,15 @@ fun PitchLineupScreen(
                                 .testTag("formation_picker_button")
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 6.dp),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = activeFormation.name,
+                                    text = activeFormationTitle,
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = cs.onSurface
+                                    color = cs.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 Icon(
                                     imageVector = Icons.Filled.ExpandMore,
@@ -289,20 +228,41 @@ fun PitchLineupScreen(
                         DropdownMenu(
                             expanded = showFormationMenu,
                             onDismissRequest = { showFormationMenu = false },
-                            modifier = Modifier.height(340.dp)
+                            modifier = Modifier.height(360.dp)
                         ) {
+                            if (uiState.savedFormations.isNotEmpty()) {
+                                uiState.savedFormations.forEach { saved ->
+                                    DropdownMenuItem(
+                                        leadingIcon = {
+                                            Icon(Icons.Filled.Bookmark, contentDescription = null, tint = FifOrange, modifier = Modifier.size(16.dp))
+                                        },
+                                        text = {
+                                            Text(
+                                                text = saved.name,
+                                                fontWeight = if (saved.name == activeFormationTitle) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                                color = if (saved.name == activeFormationTitle) FifOrange else cs.onSurface
+                                            )
+                                        },
+                                        onClick = {
+                                            showFormationMenu = false
+                                            onLoadSavedFormation(saved)
+                                        }
+                                    )
+                                }
+                                HorizontalDivider()
+                            }
                             FormationCatalog.all.forEach { form ->
                                 DropdownMenuItem(
                                     text = {
                                         Text(
                                             text = form.name,
-                                            fontWeight = if (form.id == activeFormation.id) FontWeight.ExtraBold else FontWeight.Normal,
-                                            color = if (form.id == activeFormation.id) FifOrange else cs.onSurface
+                                            fontWeight = if (form.name == activeFormationTitle) FontWeight.ExtraBold else FontWeight.Normal,
+                                            color = if (form.name == activeFormationTitle) FifOrange else cs.onSurface
                                         )
                                     },
                                     onClick = {
                                         showFormationMenu = false
-                                        onSelectFormation(activeSide, form.id)
+                                        onSelectFormation(form.id)
                                     }
                                 )
                             }
@@ -363,18 +323,16 @@ fun PitchLineupScreen(
 
                     Spacer(modifier = Modifier.weight(1f))
 
-                    if (!isMatchMode) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = cs.primaryContainer
-                        ) {
-                            Text(
-                                text = "${strings.teamPower} ${uiState.homeAveragePower}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = cs.onPrimaryContainer,
-                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 5.dp)
-                            )
-                        }
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = cs.primaryContainer
+                    ) {
+                        Text(
+                            text = "${strings.teamPower} ${uiState.homeAveragePower}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = cs.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 5.dp)
+                        )
                     }
 
                     // Pitch Color Selector
@@ -546,7 +504,6 @@ fun PitchLineupScreen(
                         ) {
                             PitchArea(
                                 uiState = uiState,
-                                isMatchMode = isMatchMode,
                                 activeDrag = activeDrag,
                                 onSlotPositioned = { key, rect -> slotBounds[key] = rect },
                                 onSlotTap = onSlotTap,
@@ -586,6 +543,18 @@ fun PitchLineupScreen(
                                     .fillMaxHeight()
                                     .aspectRatio(0.62f, matchHeightConstraintsFirst = true)
                             )
+
+                            FloatingActionButton(
+                                onClick = onOpenCreateFormation,
+                                containerColor = FifOrange,
+                                contentColor = Color.White,
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(10.dp)
+                                    .testTag("create_formation_fab")
+                            ) {
+                                Icon(Icons.Filled.Add, contentDescription = strings.createNewFormation)
+                            }
                         }
 
                         SubstitutionsBenchPane(
@@ -624,7 +593,7 @@ fun PitchLineupScreen(
                                     onSwapSlots(d.sourceSlot.slotKey, d.hoveredTargetKey)
                                 }
                             },
-                            onAddSubSlot = { onAddSubSlot(activeSide) },
+                            onAddSubSlot = onAddSubSlot,
                             onRemoveSubSlot = onRemoveSubSlot,
                             modifier = Modifier
                                 .width(130.dp)
@@ -647,7 +616,6 @@ fun PitchLineupScreen(
                         ) {
                             PitchArea(
                                 uiState = uiState,
-                                isMatchMode = isMatchMode,
                                 activeDrag = activeDrag,
                                 onSlotPositioned = { key, rect -> slotBounds[key] = rect },
                                 onSlotTap = onSlotTap,
@@ -687,6 +655,18 @@ fun PitchLineupScreen(
                                     .fillMaxHeight()
                                     .aspectRatio(0.64f, matchHeightConstraintsFirst = true)
                             )
+
+                            FloatingActionButton(
+                                onClick = onOpenCreateFormation,
+                                containerColor = FifOrange,
+                                contentColor = Color.White,
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(6.dp)
+                                    .testTag("create_formation_fab")
+                            ) {
+                                Icon(Icons.Filled.Add, contentDescription = strings.createNewFormation)
+                            }
                         }
 
                         SubstitutionsBenchPane(
@@ -725,7 +705,7 @@ fun PitchLineupScreen(
                                     onSwapSlots(d.sourceSlot.slotKey, d.hoveredTargetKey)
                                 }
                             },
-                            onAddSubSlot = { onAddSubSlot(activeSide) },
+                            onAddSubSlot = onAddSubSlot,
                             onRemoveSubSlot = onRemoveSubSlot,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -766,7 +746,6 @@ fun PitchLineupScreen(
 @Composable
 private fun PitchArea(
     uiState: FifCardUiState,
-    isMatchMode: Boolean,
     activeDrag: ActiveDragState?,
     onSlotPositioned: (String, Rect) -> Unit,
     onSlotTap: (SlotContext) -> Unit,
@@ -775,7 +754,7 @@ private fun PitchArea(
     onDragStart: (SlotContext, Offset, Dp, Dp) -> Unit,
     onDragMove: (Offset) -> Unit,
     onDragEnd: () -> Unit,
-    onCoachClick: (TeamSide) -> Unit,
+    onCoachClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     BoxWithConstraints(
@@ -787,25 +766,20 @@ private fun PitchArea(
         val pitchHeightPx = constraints.maxHeight.toFloat()
 
         // Vertical rectangular card sizing fitted cleanly inside vertical pitch
-        val cardWidthDp: Dp = if (isMatchMode) {
-            minOf(maxWidth / 7.8f, maxHeight / 13.5f).coerceIn(32.dp, 46.dp)
-        } else {
-            minOf(maxWidth / 5.7f, maxHeight / 8.8f).coerceIn(40.dp, 60.dp)
-        }
+        val cardWidthDp: Dp = minOf(maxWidth / 5.7f, maxHeight / 8.8f).coerceIn(40.dp, 60.dp)
         val cardHeightDp: Dp = cardWidthDp / VERTICAL_CARD_RATIO
         val density = LocalDensity.current
         val cardWpx = with(density) { cardWidthDp.toPx() }
         val cardHpx = with(density) { cardHeightDp.toPx() }
 
         FootballPitchCanvas(
-            pitchTheme = uiState.prefs.pitchTheme,
-            isMatchMode = isMatchMode
+            pitchTheme = uiState.prefs.pitchTheme
         )
 
-        // Home XI Slots
+        // Single Team XI Slots
         uiState.homeStarterSlots.forEach { slot ->
             val nx = slot.x
-            val ny = if (isMatchMode) 0.54f + slot.y * 0.40f else slot.y
+            val ny = slot.y
             val px = (nx * pitchWidthPx - cardWpx / 2f).coerceIn(4f, pitchWidthPx - cardWpx - 4f)
             val py = (ny * pitchHeightPx - cardHpx / 2f).coerceIn(4f, pitchHeightPx - cardHpx - 4f)
 
@@ -844,64 +818,13 @@ private fun PitchArea(
             }
         }
 
-        // Away XI Slots (Match Mode: 2 teams on one vertical field pitch!)
-        if (isMatchMode) {
-            uiState.awayStarterSlots.forEach { slot ->
-                val nx = 1f - slot.x
-                val ny = 0.46f - slot.y * 0.40f
-                val px = (nx * pitchWidthPx - cardWpx / 2f).coerceIn(4f, pitchWidthPx - cardWpx - 4f)
-                val py = (ny * pitchHeightPx - cardHpx / 2f).coerceIn(4f, pitchHeightPx - cardHpx - 4f)
-
-                PitchSlotItem(
-                    slot = slot,
-                    cardWidth = cardWidthDp,
-                    cardHeight = cardHeightDp,
-                    isSelected = uiState.selectedSlotKey == slot.slotKey,
-                    isRepositioning = uiState.repositioningSlotKey == slot.slotKey,
-                    isDropTarget = activeDrag?.hoveredTargetKey == slot.slotKey,
-                    isDraggedSource = activeDrag?.sourceSlot?.slotKey == slot.slotKey,
-                    isAwayTeam = true,
-                    onPositioned = { rect -> onSlotPositioned(slot.slotKey, rect) },
-                    onTap = { onSlotTap(slot) },
-                    onHoldForArrows = { onHoldForArrows(slot) },
-                    onDragStart = { centerRoot -> onDragStart(slot, centerRoot, cardWidthDp, cardHeightDp) },
-                    onDragMove = onDragMove,
-                    onDragEnd = onDragEnd,
-                    modifier = Modifier.offset { IntOffset(px.roundToInt(), py.roundToInt()) }
-                )
-
-                if (uiState.repositioningSlotKey == slot.slotKey) {
-                    DirectionalArrowsOverlay(
-                        cardLeftPx = px,
-                        cardTopPx = py,
-                        cardWPx = cardWpx,
-                        cardHPx = cardHpx,
-                        pitchWPx = pitchWidthPx,
-                        pitchHPx = pitchHeightPx,
-                        onUp = { onNudgeSlot(slot.slotKey, 0f, 0.055f) },
-                        onDown = { onNudgeSlot(slot.slotKey, 0f, -0.055f) },
-                        onLeft = { onNudgeSlot(slot.slotKey, 0.055f, 0f) },
-                        onRight = { onNudgeSlot(slot.slotKey, -0.055f, 0f) }
-                    )
-                }
-            }
-
-            CoachPitchCard(
-                coach = uiState.awayCoach,
-                onClick = { onCoachClick(TeamSide.AWAY) },
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(6.dp)
-            )
-        }
-
-        // Home Coach Card on bottom-left of formation
+        // Compact Manager Card on bottom-left of formation
         CoachPitchCard(
-            coach = uiState.homeCoach,
-            onClick = { onCoachClick(TeamSide.HOME) },
+            coach = uiState.activeCoach,
+            onClick = onCoachClick,
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(6.dp)
+                .padding(5.dp)
         )
     }
 }
@@ -1280,7 +1203,7 @@ private fun SubSlotWrapper(
             isRepositioning = false,
             isDropTarget = activeDrag?.hoveredTargetKey == slot.slotKey,
             isDraggedSource = activeDrag?.sourceSlot?.slotKey == slot.slotKey,
-            isAwayTeam = slot.teamSide == TeamSide.AWAY,
+            isAwayTeam = false,
             onPositioned = { rect -> onSlotPositioned(slot.slotKey, rect) },
             onTap = { onSlotTap(slot) },
             onHoldForArrows = null,

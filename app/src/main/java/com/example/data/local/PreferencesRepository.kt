@@ -3,6 +3,7 @@ package com.example.data.local
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.model.AppLanguage
@@ -17,9 +18,10 @@ data class UserPrefs(
     val language: AppLanguage = AppLanguage.ENGLISH,
     val pitchTheme: PitchTheme = PitchTheme.TURF_GREEN,
     val homeFormationId: String = "4-3-3",
-    val awayFormationId: String = "4-2-3-1",
-    val isMatchMode: Boolean = false,
+    val activeFormationLabel: String = "4-3-3",
+    val activeCoachId: Long = 0L,
     val isPlayersGridView: Boolean = true,
+    val isManagersGridView: Boolean = true,
     val hasCompletedFirstLaunch: Boolean = false
 )
 
@@ -30,21 +32,24 @@ class PreferencesRepository(private val context: Context) {
         val LANGUAGE = stringPreferencesKey("language")
         val PITCH_THEME = stringPreferencesKey("pitch_theme")
         val HOME_FORMATION = stringPreferencesKey("home_formation")
-        val AWAY_FORMATION = stringPreferencesKey("away_formation")
-        val IS_MATCH_MODE = booleanPreferencesKey("is_match_mode")
+        val ACTIVE_FORMATION_LABEL = stringPreferencesKey("active_formation_label")
+        val ACTIVE_COACH_ID = longPreferencesKey("active_coach_id")
         val IS_PLAYERS_GRID = booleanPreferencesKey("is_players_grid")
+        val IS_MANAGERS_GRID = booleanPreferencesKey("is_managers_grid")
         val FIRST_LAUNCH_DONE = booleanPreferencesKey("first_launch_done")
     }
 
     val prefsFlow: Flow<UserPrefs> = context.dataStore.data.map { prefs ->
+        val formId = prefs[Keys.HOME_FORMATION] ?: "4-3-3"
         UserPrefs(
             isDarkAmoled = prefs[Keys.IS_DARK_AMOLED] ?: true,
             language = if (prefs[Keys.LANGUAGE] == AppLanguage.ARABIC.name) AppLanguage.ARABIC else AppLanguage.ENGLISH,
             pitchTheme = PitchTheme.fromId(prefs[Keys.PITCH_THEME]),
-            homeFormationId = prefs[Keys.HOME_FORMATION] ?: "4-3-3",
-            awayFormationId = prefs[Keys.AWAY_FORMATION] ?: "4-2-3-1",
-            isMatchMode = prefs[Keys.IS_MATCH_MODE] ?: false,
+            homeFormationId = formId,
+            activeFormationLabel = prefs[Keys.ACTIVE_FORMATION_LABEL] ?: formId,
+            activeCoachId = prefs[Keys.ACTIVE_COACH_ID] ?: 0L,
             isPlayersGridView = prefs[Keys.IS_PLAYERS_GRID] ?: true,
+            isManagersGridView = prefs[Keys.IS_MANAGERS_GRID] ?: true,
             hasCompletedFirstLaunch = prefs[Keys.FIRST_LAUNCH_DONE] ?: false
         )
     }
@@ -61,20 +66,23 @@ class PreferencesRepository(private val context: Context) {
         context.dataStore.edit { it[Keys.PITCH_THEME] = theme.id }
     }
 
-    suspend fun setHomeFormation(formationId: String) {
-        context.dataStore.edit { it[Keys.HOME_FORMATION] = formationId }
+    suspend fun setHomeFormation(formationId: String, label: String = formationId) {
+        context.dataStore.edit {
+            it[Keys.HOME_FORMATION] = formationId
+            it[Keys.ACTIVE_FORMATION_LABEL] = label
+        }
     }
 
-    suspend fun setAwayFormation(formationId: String) {
-        context.dataStore.edit { it[Keys.AWAY_FORMATION] = formationId }
-    }
-
-    suspend fun setMatchMode(enabled: Boolean) {
-        context.dataStore.edit { it[Keys.IS_MATCH_MODE] = enabled }
+    suspend fun setActiveCoachId(coachId: Long) {
+        context.dataStore.edit { it[Keys.ACTIVE_COACH_ID] = coachId }
     }
 
     suspend fun setPlayersGridView(isGrid: Boolean) {
         context.dataStore.edit { it[Keys.IS_PLAYERS_GRID] = isGrid }
+    }
+
+    suspend fun setManagersGridView(isGrid: Boolean) {
+        context.dataStore.edit { it[Keys.IS_MANAGERS_GRID] = isGrid }
     }
 
     suspend fun markFirstLaunchComplete() {

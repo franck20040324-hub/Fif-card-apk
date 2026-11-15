@@ -47,13 +47,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.PlayerEntity
 import com.example.i18n.LocalAppStrings
+import com.example.model.AbilityNicknameCatalog
+import com.example.model.AppLanguage
 import com.example.model.AvatarGender
 import com.example.model.PlayingLine
 import com.example.ui.SlotContext
@@ -89,6 +93,7 @@ fun PlayerPickerSheet(
     val nations = remember(allPlayers) { allPlayers.map { it.nationality }.distinct().sorted() }
     val leagues = remember(allPlayers) { allPlayers.map { it.league }.distinct().sorted() }
 
+    val appLang = if (LocalLayoutDirection.current == LayoutDirection.Rtl) AppLanguage.ARABIC else AppLanguage.ENGLISH
     val results = remember(
         allPlayers,
         searchQuery,
@@ -103,10 +108,12 @@ fun PlayerPickerSheet(
             val matchQ = q.isEmpty() ||
                 p.name.lowercase().contains(q) ||
                 p.nickname.lowercase().contains(q) ||
+                p.abilityNicknames.lowercase().contains(q) ||
                 p.club.lowercase().contains(q) ||
                 p.nationality.lowercase().contains(q) ||
                 p.league.lowercase().contains(q) ||
-                p.mainPosition.lowercase().contains(q)
+                p.mainPosition.lowercase().contains(q) ||
+                p.secondaryPositions.lowercase().contains(q)
             val matchFamous = !famousOnly || p.naturalPower >= 86
             val matchClub = selectedClub == null || p.club == selectedClub
             val matchNation = selectedNation == null || p.nationality == selectedNation
@@ -353,6 +360,18 @@ fun PlayerPickerSheet(
                                     text = "${player.club} • ${player.league}",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = cs.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            val abilities = player.abilityNicknameList.take(2)
+                            if (abilities.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = abilities.joinToString(" • ") { AbilityNicknameCatalog.displayName(it, appLang) },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = FifOrange,
+                                    fontSize = 10.sp,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )

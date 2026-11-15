@@ -33,34 +33,15 @@ class FifCardRepository(
 
     suspend fun ensureSeeded() {
         if (playerDao.countPlayers() == 0) {
-            val seedPlayers = FifProSeedData.initialPlayers()
-            playerDao.insertPlayers(seedPlayers)
+            playerDao.insertPlayers(FifProSeedData.initialPlayers())
         }
         if (coachDao.countCoaches() == 0) {
-            coachDao.upsertCoaches(
-                listOf(
-                    CoachEntity(
-                        teamSide = TeamSide.HOME.name,
-                        name = "Manager Home",
-                        nationality = "Spain",
-                        flagEmoji = "",
-                        customImageUri = null
-                    ),
-                    CoachEntity(
-                        teamSide = TeamSide.AWAY.name,
-                        name = "Manager Away",
-                        nationality = "France",
-                        flagEmoji = "",
-                        customImageUri = null
-                    )
-                )
-            )
+            coachDao.insertCoaches(FifProSeedData.initialCoaches())
         }
         if (lineupDao.countSlots() == 0) {
             val players = playerDao.getAllPlayersOnce()
             val homeDefaults = buildInitialSlots(TeamSide.HOME, players)
-            val awayDefaults = buildInitialSlots(TeamSide.AWAY, players.drop(11))
-            lineupDao.upsertSlots(homeDefaults + awayDefaults)
+            lineupDao.upsertSlots(homeDefaults)
         }
     }
 
@@ -97,9 +78,7 @@ class FifCardRepository(
     }
 
     suspend fun assignPlayerToSlot(slotKey: String, playerId: Long?) {
-        val currentSlots = lineupDao.getSlotsForTeamOnce(
-            if (slotKey.startsWith(TeamSide.AWAY.name)) TeamSide.AWAY.name else TeamSide.HOME.name
-        )
+        val currentSlots = lineupDao.getSlotsForTeamOnce(TeamSide.HOME.name)
         val target = currentSlots.firstOrNull { it.slotKey == slotKey } ?: return
         if (playerId != null) {
             val existing = currentSlots.firstOrNull { it.playerId == playerId && it.slotKey != slotKey }
@@ -112,9 +91,7 @@ class FifCardRepository(
 
     suspend fun swapSlots(slotKeyA: String, slotKeyB: String) {
         if (slotKeyA == slotKeyB) return
-        val allHome = lineupDao.getSlotsForTeamOnce(TeamSide.HOME.name)
-        val allAway = lineupDao.getSlotsForTeamOnce(TeamSide.AWAY.name)
-        val all = allHome + allAway
+        val all = lineupDao.getSlotsForTeamOnce(TeamSide.HOME.name)
         val a = all.firstOrNull { it.slotKey == slotKeyA } ?: return
         val b = all.firstOrNull { it.slotKey == slotKeyB } ?: return
         lineupDao.upsertSlots(
@@ -126,12 +103,12 @@ class FifCardRepository(
     }
 
     suspend fun updateSlotCoordinates(slotKey: String, x: Float?, y: Float?) {
-        val side = if (slotKey.startsWith(TeamSide.AWAY.name)) TeamSide.AWAY.name else TeamSide.HOME.name
-        val slot = lineupDao.getSlotsForTeamOnce(side).firstOrNull { it.slotKey == slotKey } ?: return
+        val slot = lineupDao.getSlotsForTeamOnce(TeamSide.HOME.name)
+            .firstOrNull { it.slotKey == slotKey } ?: return
         lineupDao.upsertSlot(slot.copy(customX = x, customY = y))
     }
 
-    suspend fun clearCustomPositionsForTeam(side: TeamSide) {
+    suspend fun clearCustomPositionsForTeam(side: TeamSide = TeamSide.HOME) {
         lineupDao.clearCustomPositionsForTeam(side.name)
     }
 
@@ -153,13 +130,39 @@ class FifCardRepository(
         )
     }
 
-    suspend fun loadSavedFormation(side: TeamSide, saved: SavedFormationEntity) {
+    suspend fun createAndApplyCustomFormation(
+        name: String,
+        baseFormationId: String,
+        starterSlots: List<SlotContext>
+    ) {
+        saveFormationLocally(name, baseFormationId, starterSlots)
+        val existingSlots = lineupDao.getSlotsForTeamOnce(TeamSide.HOME.name).associateBy { it.slotKey }
+        val updated = starterSlots.map { slot ->
+            val key = starterKey(TeamSide.HOME, slot.slotIndex)
+            val base = existingSlots[key] ?: LineupSlotEntity(
+                slotKey = key,
+                teamSide = TeamSide.HOME.name,
+                isStarter = true,
+                slotIndex = slot.slotIndex,
+                playerId = slot.player?.id
+            )
+            base.copy(
+                customX = slot.x,
+                customY = slot.y,
+                customPosition = slot.slotPosition.code
+            )
+        }
+        lineupDao.upsertSlots(updated)
+    }
+
+    suspend fun loadSavedFormation(side: TeamSide = TeamSide.HOME, saved: SavedFormationEntity) {
         val existingSlots = lineupDao.getSlotsForTeamOnce(side.name).associateBy { it.slotKey }
         val updated = mutableListOf<LineupSlotEntity>()
         saved.slotsData.split(";").forEach { token ->
             val parts = token.split(",")
             if (parts.size >= 5) {
                 val idx = parts[0].toIntOrNull() ?: return@forEach
+                val posCode = parts[1].trim().ifEmpty { null }
                 val x = parts[2].toFloatOrNull()
                 val y = parts[3].toFloatOrNull()
                 val pid = parts[4].toLongOrNull()
@@ -171,7 +174,14 @@ class FifCardRepository(
                     slotIndex = idx,
                     playerId = null
                 )
-                updated.add(base.copy(playerId = pid, customX = x, customY = y))
+                updated.add(
+                    base.copy(
+                        playerId = pid,
+                        customX = x,
+                        customY = y,
+                        customPosition = posCode
+                    )
+                )
             }
         }
         if (updated.isNotEmpty()) {
@@ -183,7 +193,7 @@ class FifCardRepository(
         savedFormationDao.deleteSavedFormation(id)
     }
 
-    suspend fun addSubSlot(teamSide: TeamSide): String {
+    suspend fun addSubSlot(teamSide: TeamSide = TeamSide.HOME): String {
         val existingSubs = lineupDao.getSlotsForTeamOnce(teamSide.name).filter { !it.isStarter }
         val nextIndex = (existingSubs.maxOfOrNull { it.slotIndex } ?: -1) + 1
         val key = subKey(teamSide, nextIndex)
@@ -225,8 +235,17 @@ class FifCardRepository(
         }
     }
 
-    suspend fun saveCoach(coach: CoachEntity) {
-        coachDao.upsertCoach(coach)
+    suspend fun saveCoach(coach: CoachEntity): Long {
+        return if (coach.id == 0L) {
+            coachDao.insertCoach(coach)
+        } else {
+            coachDao.updateCoach(coach)
+            coach.id
+        }
+    }
+
+    suspend fun deleteCustomCoach(coachId: Long) {
+        coachDao.deleteCustomCoach(coachId)
     }
 
     suspend fun addSong(title: String, uriString: String) {

@@ -12,8 +12,9 @@ data class PlayerEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
     val nickname: String = "",
+    val abilityNicknames: String = "",
     val nationality: String,
-    val flagEmoji: String,
+    val flagEmoji: String = "",
     val club: String,
     val league: String,
     val mainPosition: String,
@@ -55,7 +56,14 @@ data class PlayerEntity(
             }
             .distinct()
             .filter { it != mainPositionCode }
-            .take(3)
+            .take(5)
+
+    val abilityNicknameList: List<String>
+        get() = abilityNicknames
+            .split(",")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
 
     val naturalPower: Int
         get() = powerForLine(mainLine)
@@ -91,14 +99,15 @@ data class PlayerEntity(
             powerGk,
             powerDef,
             powerMid,
-            powerAtt
+            powerAtt,
+            abilityNicknames
         ).joinToString("|")
     }
 
     fun restoredFromSnapshot(): PlayerEntity {
         if (!isBuiltIn || defaultSnapshot.isBlank()) return this
         val parts = defaultSnapshot.split("|")
-        if (parts.size < 17) return this
+        if (parts.size < 18) return this
         return copy(
             mainPosition = parts[0],
             secondaryPositions = parts[1],
@@ -116,7 +125,8 @@ data class PlayerEntity(
             powerGk = parts[13].toIntOrNull() ?: powerGk,
             powerDef = parts[14].toIntOrNull() ?: powerDef,
             powerMid = parts[15].toIntOrNull() ?: powerMid,
-            powerAtt = parts[16].toIntOrNull() ?: powerAtt
+            powerAtt = parts[16].toIntOrNull() ?: powerAtt,
+            abilityNicknames = parts[17]
         )
     }
 }
@@ -124,12 +134,13 @@ data class PlayerEntity(
 @Entity(tableName = "lineup_slots")
 data class LineupSlotEntity(
     @PrimaryKey val slotKey: String,
-    val teamSide: String, // "HOME" or "AWAY"
+    val teamSide: String, // "HOME"
     val isStarter: Boolean,
     val slotIndex: Int,
     val playerId: Long?,
     val customX: Float? = null,
-    val customY: Float? = null
+    val customY: Float? = null,
+    val customPosition: String? = null
 )
 
 @Entity(tableName = "saved_formations")
@@ -143,11 +154,12 @@ data class SavedFormationEntity(
 
 @Entity(tableName = "coaches")
 data class CoachEntity(
-    @PrimaryKey val teamSide: String, // "HOME" or "AWAY"
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
     val nationality: String,
-    val flagEmoji: String,
-    val customImageUri: String? = null
+    val flagEmoji: String = "",
+    val customImageUri: String? = null,
+    val isBuiltIn: Boolean = false
 )
 
 @Entity(tableName = "songs")

@@ -18,8 +18,10 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.ManageAccounts
 import androidx.compose.material.icons.filled.SportsSoccer
 import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material.icons.outlined.ManageAccounts
 import androidx.compose.material.icons.outlined.SportsSoccer
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -43,15 +45,19 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.i18n.LocalAppStrings
 import com.example.i18n.stringsFor
 import com.example.model.AppLanguage
-import com.example.model.TeamSide
 import com.example.ui.FifCardUiState
 import com.example.ui.FifCardViewModel
 import com.example.ui.MainTab
 import com.example.ui.components.MusicAndHeaderTopBar
+import com.example.ui.screens.ManagersListScreen
 import com.example.ui.screens.PitchLineupScreen
 import com.example.ui.screens.PlayersListScreen
 import com.example.ui.sheets.CoachEditorDialog
+import com.example.ui.sheets.CreateFormationDialog
 import com.example.ui.sheets.FirstLaunchSetupDialog
+import com.example.ui.sheets.ManagerDetailSheet
+import com.example.ui.sheets.ManagerPickerSheet
+import com.example.ui.sheets.ManagerPitchActionSheet
 import com.example.ui.sheets.PlayerDetailSheet
 import com.example.ui.sheets.PlayerEditorDialog
 import com.example.ui.sheets.PlayerPickerSheet
@@ -59,6 +65,7 @@ import com.example.ui.sheets.PlaylistSheet
 import com.example.ui.sheets.ResetFifProConfirmDialog
 import com.example.ui.sheets.SaveFormationDialog
 import com.example.ui.sheets.SavedFormationsSheet
+import com.example.ui.sheets.SlotActionSheet
 import com.example.ui.theme.FifCardTheme
 import com.example.ui.theme.FifOrange
 
@@ -103,17 +110,15 @@ private fun FifCardRoot(
         }
     }
 
-    val activeSide = if (uiState.prefs.isMatchMode) uiState.activeMatchSide else TeamSide.HOME
-
     BackHandler(
         enabled = uiState.repositioningSlotKey != null ||
             uiState.selectedSlotKey != null ||
-            uiState.activeTab == MainTab.PLAYERS
+            uiState.activeTab != MainTab.PITCH
     ) {
         when {
             uiState.repositioningSlotKey != null -> viewModel.finishRepositioning()
             uiState.selectedSlotKey != null -> viewModel.cancelSlotSelection()
-            uiState.activeTab == MainTab.PLAYERS -> viewModel.setTab(MainTab.PITCH)
+            uiState.activeTab != MainTab.PITCH -> viewModel.setTab(MainTab.PITCH)
         }
     }
 
@@ -184,6 +189,23 @@ private fun FifCardRoot(
                             ),
                             modifier = Modifier.testTag("nav_players_tab")
                         )
+                        NavigationBarItem(
+                            selected = uiState.activeTab == MainTab.MANAGERS,
+                            onClick = { viewModel.setTab(MainTab.MANAGERS) },
+                            icon = {
+                                Icon(
+                                    imageVector = if (uiState.activeTab == MainTab.MANAGERS) Icons.Filled.ManageAccounts else Icons.Outlined.ManageAccounts,
+                                    contentDescription = strings.managersTab
+                                )
+                            },
+                            label = { Text(strings.managersTab, fontWeight = FontWeight.Bold) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = FifOrange,
+                                selectedTextColor = FifOrange,
+                                indicatorColor = FifOrange.copy(alpha = 0.16f)
+                            ),
+                            modifier = Modifier.testTag("nav_managers_tab")
+                        )
                     }
                 }
             ) { innerPadding ->
@@ -203,11 +225,11 @@ private fun FifCardRoot(
                         when (uiState.activeTab) {
                             MainTab.PITCH -> PitchLineupScreen(
                                 uiState = uiState,
-                                onSetMatchMode = viewModel::setMatchMode,
-                                onSetActiveMatchSide = viewModel::setActiveMatchSide,
                                 onSelectFormation = viewModel::setFormation,
+                                onLoadSavedFormation = viewModel::loadSavedFormation,
                                 onOpenSaveFormation = viewModel::openSaveFormationDialog,
                                 onOpenSavedFormations = viewModel::openSavedFormationsSheet,
+                                onOpenCreateFormation = viewModel::openCreateFormationDialog,
                                 onSelectPitchTheme = viewModel::setPitchTheme,
                                 onSlotTap = viewModel::onSlotTapped,
                                 onHoldForArrows = viewModel::startRepositioning,
@@ -219,7 +241,7 @@ private fun FifCardRoot(
                                 onCancelSelection = viewModel::cancelSlotSelection,
                                 onAddSubSlot = viewModel::addSubSlot,
                                 onRemoveSubSlot = viewModel::removeSubSlot,
-                                onCoachClick = viewModel::openCoachEditor
+                                onCoachClick = viewModel::onPitchCoachTapped
                             )
                             MainTab.PLAYERS -> PlayersListScreen(
                                 uiState = uiState,
@@ -229,12 +251,33 @@ private fun FifCardRoot(
                                 onCreatePlayerClick = { viewModel.openCreatePlayer(null) },
                                 onResetFifProClick = viewModel::askResetFifPro
                             )
+                            MainTab.MANAGERS -> ManagersListScreen(
+                                uiState = uiState,
+                                onUpdateFilter = viewModel::updateManagerFilter,
+                                onSetGridView = viewModel::setManagersGridView,
+                                onManagerClick = viewModel::openManagerDetail,
+                                onCreateManagerClick = { viewModel.openCreateManager(assignToPitch = false) }
+                            )
                         }
                     }
                 }
             }
 
-            // Empty Slot Picker Sheet
+            // Slot Action Sheet (Create New Card / Select from Existing Cards List)
+            val slotActionTarget = uiState.slotActionTarget
+            if (slotActionTarget != null) {
+                SlotActionSheet(
+                    slotContext = slotActionTarget,
+                    onCreateNewCard = { viewModel.openCreateFromSlotAction(slotActionTarget.slotKey) },
+                    onSelectExistingCard = { viewModel.openSelectExistingFromSlotAction(slotActionTarget.slotKey) },
+                    onInspectOrEditCard = { viewModel.inspectFromSlotAction(slotActionTarget.slotKey) },
+                    onStartSwap = { viewModel.startSwapFromSlotAction(slotActionTarget.slotKey) },
+                    onRemoveFromSlot = { viewModel.clearFromSlotAction(slotActionTarget.slotKey) },
+                    onDismiss = viewModel::closeSlotActionSheet
+                )
+            }
+
+            // Existing Player Cards Picker Sheet
             val pickerTarget = uiState.pickerTargetSlot
             if (pickerTarget != null) {
                 PlayerPickerSheet(
@@ -269,24 +312,67 @@ private fun FifCardRoot(
                 )
             }
 
-            // Coach Editor Dialog
-            val editingCoachSide = uiState.editingCoachSide
-            if (editingCoachSide != null) {
-                val coach = if (editingCoachSide == TeamSide.HOME) uiState.homeCoach else uiState.awayCoach
+            // Pitch Manager Action Sheet (Create New Manager / Select from Managers List)
+            if (uiState.showManagerPitchActions) {
+                ManagerPitchActionSheet(
+                    activeCoach = uiState.activeCoach,
+                    onCreateNewManager = { viewModel.openCreateManager(assignToPitch = true) },
+                    onSelectFromManagersList = viewModel::openManagerPicker,
+                    onEditCurrentManager = { viewModel.openEditManager(uiState.activeCoach, assignToPitch = true) },
+                    onDismiss = viewModel::closeManagerPitchActions
+                )
+            }
+
+            // Managers List Picker Sheet (for pitch)
+            if (uiState.showManagerPickerSheet) {
+                ManagerPickerSheet(
+                    coaches = uiState.coaches,
+                    activeCoachId = uiState.activeCoach.id,
+                    onSelectCoach = viewModel::assignCoachToPitch,
+                    onCreateNewManager = { viewModel.openCreateManager(assignToPitch = true) },
+                    onDismiss = viewModel::closeManagerPicker
+                )
+            }
+
+            // Manager Detail Sheet (from Managers tab)
+            val inspectedManager = uiState.inspectedManager
+            if (inspectedManager != null) {
+                ManagerDetailSheet(
+                    coach = inspectedManager,
+                    isActiveOnPitch = inspectedManager.id == uiState.activeCoach.id,
+                    onAssignToPitch = viewModel::assignCoachToPitch,
+                    onEditManager = { viewModel.openEditManager(it, assignToPitch = false) },
+                    onDeleteCustomManager = viewModel::deleteCustomCoach,
+                    onDismiss = viewModel::closeManagerDetail
+                )
+            }
+
+            // Coach / Manager Editor & Creator Dialog
+            val editingCoach = uiState.editingCoach
+            if (editingCoach != null) {
                 CoachEditorDialog(
-                    coach = coach,
+                    coach = editingCoach,
                     onPersistPhotoUri = viewModel::persistPhotoUriPermission,
                     onSave = viewModel::saveCoach,
                     onDismiss = viewModel::closeCoachEditor
                 )
             }
 
-            // Save Formation Dialog
+            // Create New Custom Formation Dialog (FAB on Pitch screen)
+            if (uiState.showCreateFormationDialog) {
+                CreateFormationDialog(
+                    currentSlots = uiState.homeStarterSlots,
+                    currentBaseFormationId = uiState.prefs.homeFormationId,
+                    onCreateAndApply = viewModel::createAndApplyNewFormation,
+                    onDismiss = viewModel::closeCreateFormationDialog
+                )
+            }
+
+            // Save Current Formation Locally Dialog
             if (uiState.showSaveFormationDialog) {
-                val currentForm = if (activeSide == TeamSide.HOME) uiState.homeFormation else uiState.awayFormation
                 SaveFormationDialog(
-                    defaultName = "${currentForm.name} Custom",
-                    onSave = { name -> viewModel.saveCurrentFormation(activeSide, name) },
+                    defaultName = "${uiState.prefs.activeFormationLabel.ifBlank { uiState.homeFormation.name }} Custom",
+                    onSave = viewModel::saveCurrentFormation,
                     onDismiss = viewModel::closeSaveFormationDialog
                 )
             }
@@ -295,7 +381,7 @@ private fun FifCardRoot(
             if (uiState.showSavedFormationsSheet) {
                 SavedFormationsSheet(
                     savedFormations = uiState.savedFormations,
-                    onLoadFormation = { saved -> viewModel.loadSavedFormation(activeSide, saved) },
+                    onLoadFormation = viewModel::loadSavedFormation,
                     onDeleteFormation = viewModel::deleteSavedFormation,
                     onDismiss = viewModel::closeSavedFormationsSheet
                 )

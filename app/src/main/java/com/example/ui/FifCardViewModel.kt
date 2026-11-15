@@ -20,6 +20,7 @@ import com.example.model.AppLanguage
 import com.example.model.Formation
 import com.example.model.FormationCatalog
 import com.example.model.LocalTrack
+import com.example.model.ManagerSortOption
 import com.example.model.PitchTheme
 import com.example.model.PlayerSortOption
 import com.example.model.PlayingLine
@@ -36,7 +37,8 @@ import kotlinx.coroutines.launch
 
 enum class MainTab {
     PITCH,
-    PLAYERS
+    PLAYERS,
+    MANAGERS
 }
 
 data class SlotContext(
@@ -61,6 +63,11 @@ data class PlayerFilterState(
     val famousOnly: Boolean = false
 )
 
+data class ManagerFilterState(
+    val query: String = "",
+    val sortOption: ManagerSortOption = ManagerSortOption.NAME_ASC
+)
+
 data class FifCardUiState(
     val isReady: Boolean = false,
     val activeTab: MainTab = MainTab.PITCH,
@@ -68,41 +75,36 @@ data class FifCardUiState(
     val players: List<PlayerEntity> = emptyList(),
     val filteredPlayers: List<PlayerEntity> = emptyList(),
     val filterState: PlayerFilterState = PlayerFilterState(),
+    val coaches: List<CoachEntity> = emptyList(),
+    val filteredCoaches: List<CoachEntity> = emptyList(),
+    val managerFilterState: ManagerFilterState = ManagerFilterState(),
+    val activeCoach: CoachEntity = CoachEntity(name = "Pep Guardiola", nationality = "Spain", isBuiltIn = true),
     val homeStarterSlots: List<SlotContext> = emptyList(),
     val homeSubSlots: List<SlotContext> = emptyList(),
-    val awayStarterSlots: List<SlotContext> = emptyList(),
-    val awaySubSlots: List<SlotContext> = emptyList(),
     val savedFormations: List<SavedFormationEntity> = emptyList(),
-    val homeCoach: CoachEntity = CoachEntity(TeamSide.HOME.name, "Manager Home", "Spain", "🇪🇸"),
-    val awayCoach: CoachEntity = CoachEntity(TeamSide.AWAY.name, "Manager Away", "France", "🇫🇷"),
-    val activeMatchSide: TeamSide = TeamSide.HOME,
     val selectedSlotKey: String? = null,
     val repositioningSlotKey: String? = null,
+    val slotActionTarget: SlotContext? = null,
     val pickerTargetSlot: SlotContext? = null,
     val inspectedPlayerSlot: SlotContext? = null,
     val editingPlayer: PlayerEntity? = null,
     val isCreatingNewPlayerForSlot: String? = null,
-    val editingCoachSide: TeamSide? = null,
+    val showManagerPitchActions: Boolean = false,
+    val showManagerPickerSheet: Boolean = false,
+    val inspectedManager: CoachEntity? = null,
+    val editingCoach: CoachEntity? = null,
     val showPlaylistSheet: Boolean = false,
     val showResetConfirmDialog: Boolean = false,
     val showSaveFormationDialog: Boolean = false,
+    val showCreateFormationDialog: Boolean = false,
     val showSavedFormationsSheet: Boolean = false,
     val musicState: MusicState = MusicState()
 ) {
     val homeFormation: Formation get() = FormationCatalog.byId(prefs.homeFormationId)
-    val awayFormation: Formation get() = FormationCatalog.byId(prefs.awayFormationId)
 
     val homeAveragePower: Int
         get() {
             val rated = homeStarterSlots.mapNotNull { slot ->
-                slot.player?.powerForSlot(slot.slotPosition)
-            }
-            return if (rated.isEmpty()) 0 else rated.sum() / rated.size
-        }
-
-    val awayAveragePower: Int
-        get() {
-            val rated = awayStarterSlots.mapNotNull { slot ->
                 slot.player?.powerForSlot(slot.slotPosition)
             }
             return if (rated.isEmpty()) 0 else rated.sum() / rated.size
@@ -118,73 +120,99 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
 
     private val activeTab = MutableStateFlow(MainTab.PITCH)
     private val filterState = MutableStateFlow(PlayerFilterState())
-    private val activeMatchSide = MutableStateFlow(TeamSide.HOME)
+    private val managerFilterState = MutableStateFlow(ManagerFilterState())
     private val selectedSlotKey = MutableStateFlow<String?>(null)
     private val repositioningSlotKey = MutableStateFlow<String?>(null)
+    private val slotActionTargetKey = MutableStateFlow<String?>(null)
     private val pickerTargetSlotKey = MutableStateFlow<String?>(null)
     private val inspectedSlotKey = MutableStateFlow<String?>(null)
     private val inspectedStandalonePlayerId = MutableStateFlow<Long?>(null)
     private val editingPlayerState = MutableStateFlow<PlayerEntity?>(null)
     private val creatingForSlotKey = MutableStateFlow<String?>(null)
-    private val editingCoachSide = MutableStateFlow<TeamSide?>(null)
+
+    private val showManagerPitchActions = MutableStateFlow(false)
+    private val showManagerPickerSheet = MutableStateFlow(false)
+    private val inspectedManagerId = MutableStateFlow<Long?>(null)
+    private val editingCoachState = MutableStateFlow<CoachEntity?>(null)
+    private val assignCoachToPitchAfterSave = MutableStateFlow(false)
+
     private val showPlaylistSheet = MutableStateFlow(false)
     private val showResetConfirmDialog = MutableStateFlow(false)
     private val showSaveFormationDialog = MutableStateFlow(false)
+    private val showCreateFormationDialog = MutableStateFlow(false)
     private val showSavedFormationsSheet = MutableStateFlow(false)
     private val isSeeded = MutableStateFlow(false)
 
     private data class ModalState(
         val tab: MainTab,
         val filter: PlayerFilterState,
-        val matchSide: TeamSide,
+        val managerFilter: ManagerFilterState,
         val selectedSlot: String?,
         val repositionSlot: String?,
+        val slotActionKey: String?,
         val pickerSlot: String?,
         val inspectedSlot: String?,
         val inspectedPlayerId: Long?,
         val editingPlayer: PlayerEntity?,
         val creatingForSlot: String?,
-        val editingCoach: TeamSide?,
+        val managerPitchActions: Boolean,
+        val managerPickerSheet: Boolean,
+        val inspectedManagerId: Long?,
+        val editingCoach: CoachEntity?,
         val playlistOpen: Boolean,
         val resetDialog: Boolean,
         val saveFormationDialog: Boolean,
+        val createFormationDialog: Boolean,
         val savedFormationsSheet: Boolean
     )
 
     private val modalFlow = combine(
-        combine(activeTab, filterState, activeMatchSide, selectedSlotKey, repositioningSlotKey) { t, f, m, s, rp ->
-            arrayOf<Any?>(t, f, m, s, rp)
+        combine(activeTab, filterState, managerFilterState, selectedSlotKey, repositioningSlotKey) { t, f, mf, s, rp ->
+            arrayOf<Any?>(t, f, mf, s, rp)
         },
-        combine(pickerTargetSlotKey, inspectedSlotKey, inspectedStandalonePlayerId, editingPlayerState) { p, i, ip, e ->
-            arrayOf<Any?>(p, i, ip, e)
+        combine(slotActionTargetKey, pickerTargetSlotKey, inspectedSlotKey, inspectedStandalonePlayerId, editingPlayerState) { sa, p, i, ip, e ->
+            arrayOf<Any?>(sa, p, i, ip, e)
         },
         combine(
             creatingForSlotKey,
-            editingCoachSide,
+            showManagerPitchActions,
+            showManagerPickerSheet,
+            inspectedManagerId,
+            editingCoachState
+        ) { c, mpa, mps, im, ec ->
+            arrayOf<Any?>(c, mpa, mps, im, ec)
+        },
+        combine(
             showPlaylistSheet,
             showResetConfirmDialog,
-            showSaveFormationDialog
-        ) { c, ec, pl, rd, sf ->
-            arrayOf<Any?>(c, ec, pl, rd, sf)
-        },
-        showSavedFormationsSheet
-    ) { a, b, c, sfs ->
+            showSaveFormationDialog,
+            showCreateFormationDialog,
+            showSavedFormationsSheet
+        ) { pl, rd, sf, cf, sfs ->
+            arrayOf<Any?>(pl, rd, sf, cf, sfs)
+        }
+    ) { a, b, c, d ->
         ModalState(
             tab = a[0] as MainTab,
             filter = a[1] as PlayerFilterState,
-            matchSide = a[2] as TeamSide,
+            managerFilter = a[2] as ManagerFilterState,
             selectedSlot = a[3] as String?,
             repositionSlot = a[4] as String?,
-            pickerSlot = b[0] as String?,
-            inspectedSlot = b[1] as String?,
-            inspectedPlayerId = b[2] as Long?,
-            editingPlayer = b[3] as PlayerEntity?,
+            slotActionKey = b[0] as String?,
+            pickerSlot = b[1] as String?,
+            inspectedSlot = b[2] as String?,
+            inspectedPlayerId = b[3] as Long?,
+            editingPlayer = b[4] as PlayerEntity?,
             creatingForSlot = c[0] as String?,
-            editingCoach = c[1] as TeamSide?,
-            playlistOpen = c[2] as Boolean,
-            resetDialog = c[3] as Boolean,
-            saveFormationDialog = c[4] as Boolean,
-            savedFormationsSheet = sfs
+            managerPitchActions = c[1] as Boolean,
+            managerPickerSheet = c[2] as Boolean,
+            inspectedManagerId = c[3] as Long?,
+            editingCoach = c[4] as CoachEntity?,
+            playlistOpen = d[0] as Boolean,
+            resetDialog = d[1] as Boolean,
+            saveFormationDialog = d[2] as Boolean,
+            createFormationDialog = d[3] as Boolean,
+            savedFormationsSheet = d[4] as Boolean
         )
     }
 
@@ -221,19 +249,14 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
 
         val playerById = players.associateBy { it.id }
         val homeFormation = FormationCatalog.byId(prefs.homeFormationId)
-        val awayFormation = FormationCatalog.byId(prefs.awayFormationId)
 
         val homeStarters = buildStarterContexts(TeamSide.HOME, homeFormation, slots, playerById)
         val homeSubs = buildSubContexts(TeamSide.HOME, slots, playerById)
-        val awayStarters = buildStarterContexts(TeamSide.AWAY, awayFormation, slots, playerById)
-        val awaySubs = buildSubContexts(TeamSide.AWAY, slots, playerById)
+        val allContexts = homeStarters + homeSubs
 
-        val allContexts = homeStarters + homeSubs + awayStarters + awaySubs
-
-        val homeCoach = coaches.firstOrNull { it.teamSide == TeamSide.HOME.name }
-            ?: CoachEntity(TeamSide.HOME.name, "Manager Home", "Spain", "🇪🇸")
-        val awayCoach = coaches.firstOrNull { it.teamSide == TeamSide.AWAY.name }
-            ?: CoachEntity(TeamSide.AWAY.name, "Manager Away", "France", "🇫🇷")
+        val activeCoach = coaches.firstOrNull { it.id == prefs.activeCoachId }
+            ?: coaches.firstOrNull()
+            ?: CoachEntity(name = "Pep Guardiola", nationality = "Spain", isBuiltIn = true)
 
         val inspectedContext = when {
             modal.inspectedSlot != null -> allContexts.firstOrNull { it.slotKey == modal.inspectedSlot }
@@ -260,24 +283,28 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
             players = players,
             filteredPlayers = applyFilterAndSort(players, modal.filter),
             filterState = modal.filter,
+            coaches = coaches,
+            filteredCoaches = applyManagerFilterAndSort(coaches, modal.managerFilter),
+            managerFilterState = modal.managerFilter,
+            activeCoach = activeCoach,
             homeStarterSlots = homeStarters,
             homeSubSlots = homeSubs,
-            awayStarterSlots = awayStarters,
-            awaySubSlots = awaySubs,
             savedFormations = savedFormations,
-            homeCoach = homeCoach,
-            awayCoach = awayCoach,
-            activeMatchSide = modal.matchSide,
             selectedSlotKey = modal.selectedSlot,
             repositioningSlotKey = modal.repositionSlot,
+            slotActionTarget = modal.slotActionKey?.let { key -> allContexts.firstOrNull { it.slotKey == key } },
             pickerTargetSlot = modal.pickerSlot?.let { key -> allContexts.firstOrNull { it.slotKey == key } },
             inspectedPlayerSlot = inspectedContext,
             editingPlayer = modal.editingPlayer,
             isCreatingNewPlayerForSlot = modal.creatingForSlot,
-            editingCoachSide = modal.editingCoach,
+            showManagerPitchActions = modal.managerPitchActions,
+            showManagerPickerSheet = modal.managerPickerSheet,
+            inspectedManager = modal.inspectedManagerId?.let { id -> coaches.firstOrNull { it.id == id } },
+            editingCoach = modal.editingCoach,
             showPlaylistSheet = modal.playlistOpen,
             showResetConfirmDialog = modal.resetDialog,
             showSaveFormationDialog = modal.saveFormationDialog,
+            showCreateFormationDialog = modal.createFormationDialog,
             showSavedFormationsSheet = modal.savedFormationsSheet,
             musicState = music
         )
@@ -313,15 +340,16 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
             val key = entity?.slotKey ?: FifCardRepository.starterKey(side, fSlot.index)
             val cx = entity?.customX
             val cy = entity?.customY
+            val customPos = entity?.customPosition?.let { PositionCode.fromCode(it) }
             SlotContext(
                 slotKey = key,
                 teamSide = side,
                 isStarter = true,
                 slotIndex = fSlot.index,
-                slotPosition = fSlot.position,
+                slotPosition = customPos ?: fSlot.position,
                 x = cx ?: fSlot.x,
                 y = cy ?: fSlot.y,
-                hasCustomPosition = cx != null && cy != null,
+                hasCustomPosition = (cx != null && cy != null) || customPos != null,
                 player = entity?.playerId?.let { playerById[it] }
             )
         }
@@ -360,6 +388,7 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
             val matchesQuery = if (q.isEmpty()) true else {
                 p.name.lowercase().contains(q) ||
                     p.nickname.lowercase().contains(q) ||
+                    p.abilityNicknames.lowercase().contains(q) ||
                     p.club.lowercase().contains(q) ||
                     p.nationality.lowercase().contains(q) ||
                     p.league.lowercase().contains(q) ||
@@ -383,6 +412,23 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
             PlayerSortOption.NATIONALITY -> filtered.sortedWith(compareBy({ it.nationality.lowercase() }, { -it.naturalPower }))
             PlayerSortOption.CLUB -> filtered.sortedWith(compareBy({ it.club.lowercase() }, { -it.naturalPower }))
             PlayerSortOption.LEAGUE -> filtered.sortedWith(compareBy({ it.league.lowercase() }, { -it.naturalPower }))
+        }
+    }
+
+    private fun applyManagerFilterAndSort(
+        coaches: List<CoachEntity>,
+        filter: ManagerFilterState
+    ): List<CoachEntity> {
+        val q = filter.query.trim().lowercase()
+        val filtered = coaches.filter { c ->
+            q.isEmpty() ||
+                c.name.lowercase().contains(q) ||
+                c.nationality.lowercase().contains(q)
+        }
+        return when (filter.sortOption) {
+            ManagerSortOption.NAME_ASC -> filtered.sortedBy { it.name.lowercase() }
+            ManagerSortOption.NAME_DESC -> filtered.sortedByDescending { it.name.lowercase() }
+            ManagerSortOption.NATIONALITY -> filtered.sortedWith(compareBy({ it.nationality.lowercase() }, { it.name.lowercase() }))
         }
     }
 
@@ -419,22 +465,12 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch { prefsRepo.setPitchTheme(theme) }
     }
 
-    fun setMatchMode(enabled: Boolean) {
-        selectedSlotKey.value = null
+    fun setFormation(formationId: String) {
         repositioningSlotKey.value = null
-        viewModelScope.launch { prefsRepo.setMatchMode(enabled) }
-    }
-
-    fun setActiveMatchSide(side: TeamSide) {
-        activeMatchSide.value = side
-    }
-
-    fun setFormation(side: TeamSide, formationId: String) {
-        repositioningSlotKey.value = null
+        val form = FormationCatalog.byId(formationId)
         viewModelScope.launch {
-            repository.clearCustomPositionsForTeam(side)
-            if (side == TeamSide.HOME) prefsRepo.setHomeFormation(formationId)
-            else prefsRepo.setAwayFormation(formationId)
+            repository.clearCustomPositionsForTeam(TeamSide.HOME)
+            prefsRepo.setHomeFormation(form.id, form.name)
         }
     }
 
@@ -446,12 +482,36 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
         showSaveFormationDialog.value = false
     }
 
-    fun saveCurrentFormation(side: TeamSide, name: String) {
+    fun saveCurrentFormation(name: String) {
         showSaveFormationDialog.value = false
-        val starters = if (side == TeamSide.HOME) uiState.value.homeStarterSlots else uiState.value.awayStarterSlots
-        val baseId = if (side == TeamSide.HOME) uiState.value.prefs.homeFormationId else uiState.value.prefs.awayFormationId
+        val starters = uiState.value.homeStarterSlots
+        val baseId = uiState.value.prefs.homeFormationId
+        val cleanName = name.trim().ifEmpty { uiState.value.homeFormation.name }
         viewModelScope.launch(Dispatchers.IO) {
-            repository.saveFormationLocally(name, baseId, starters)
+            repository.saveFormationLocally(cleanName, baseId, starters)
+            prefsRepo.setHomeFormation(baseId, cleanName)
+        }
+    }
+
+    fun openCreateFormationDialog() {
+        showCreateFormationDialog.value = true
+    }
+
+    fun closeCreateFormationDialog() {
+        showCreateFormationDialog.value = false
+    }
+
+    fun createAndApplyNewFormation(
+        name: String,
+        baseFormationId: String,
+        customSlots: List<SlotContext>
+    ) {
+        showCreateFormationDialog.value = false
+        repositioningSlotKey.value = null
+        val cleanName = name.trim().ifEmpty { baseFormationId }
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.createAndApplyCustomFormation(cleanName, baseFormationId, customSlots)
+            prefsRepo.setHomeFormation(baseFormationId, cleanName)
         }
     }
 
@@ -463,13 +523,12 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
         showSavedFormationsSheet.value = false
     }
 
-    fun loadSavedFormation(side: TeamSide, saved: SavedFormationEntity) {
+    fun loadSavedFormation(saved: SavedFormationEntity) {
         showSavedFormationsSheet.value = false
         repositioningSlotKey.value = null
         viewModelScope.launch(Dispatchers.IO) {
-            if (side == TeamSide.HOME) prefsRepo.setHomeFormation(saved.baseFormationId)
-            else prefsRepo.setAwayFormation(saved.baseFormationId)
-            repository.loadSavedFormation(side, saved)
+            prefsRepo.setHomeFormation(saved.baseFormationId, saved.name)
+            repository.loadSavedFormation(TeamSide.HOME, saved)
         }
     }
 
@@ -487,6 +546,14 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
         filterState.update(transform)
     }
 
+    fun setManagersGridView(isGrid: Boolean) {
+        viewModelScope.launch { prefsRepo.setManagersGridView(isGrid) }
+    }
+
+    fun updateManagerFilter(transform: (ManagerFilterState) -> ManagerFilterState) {
+        managerFilterState.update(transform)
+    }
+
     fun onSlotTapped(slot: SlotContext) {
         if (repositioningSlotKey.value != null) {
             repositioningSlotKey.value = null
@@ -495,39 +562,60 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
 
         val currentSelected = selectedSlotKey.value
         if (currentSelected != null) {
-            if (currentSelected == slot.slotKey) {
-                selectedSlotKey.value = null
-                if (slot.player != null) {
-                    inspectedSlotKey.value = slot.slotKey
-                    inspectedStandalonePlayerId.value = null
-                } else {
-                    pickerTargetSlotKey.value = slot.slotKey
-                }
-            } else {
-                selectedSlotKey.value = null
+            selectedSlotKey.value = null
+            if (currentSelected != slot.slotKey) {
                 viewModelScope.launch(Dispatchers.IO) {
                     repository.swapSlots(currentSelected, slot.slotKey)
                 }
+            } else {
+                slotActionTargetKey.value = slot.slotKey
             }
             return
         }
 
-        if (slot.player == null) {
-            pickerTargetSlotKey.value = slot.slotKey
-        } else {
-            selectedSlotKey.value = slot.slotKey
-        }
+        // Tapping any empty OR current card shows 2 primary options (Create New Card / Select from Existing List)
+        slotActionTargetKey.value = slot.slotKey
+    }
+
+    fun closeSlotActionSheet() {
+        slotActionTargetKey.value = null
+    }
+
+    fun openCreateFromSlotAction(slotKey: String) {
+        slotActionTargetKey.value = null
+        openCreatePlayer(slotKey)
+    }
+
+    fun openSelectExistingFromSlotAction(slotKey: String) {
+        slotActionTargetKey.value = null
+        pickerTargetSlotKey.value = slotKey
+    }
+
+    fun inspectFromSlotAction(slotKey: String) {
+        slotActionTargetKey.value = null
+        inspectedSlotKey.value = slotKey
+        inspectedStandalonePlayerId.value = null
+    }
+
+    fun startSwapFromSlotAction(slotKey: String) {
+        slotActionTargetKey.value = null
+        selectedSlotKey.value = slotKey
+    }
+
+    fun clearFromSlotAction(slotKey: String) {
+        slotActionTargetKey.value = null
+        clearSlot(slotKey)
     }
 
     fun startRepositioning(slot: SlotContext) {
         if (!slot.isStarter) return
         selectedSlotKey.value = null
+        slotActionTargetKey.value = null
         repositioningSlotKey.value = slot.slotKey
     }
 
     fun nudgeSlotPosition(slotKey: String, dx: Float, dy: Float) {
-        val all = uiState.value.homeStarterSlots + uiState.value.awayStarterSlots
-        val slot = all.firstOrNull { it.slotKey == slotKey } ?: return
+        val slot = uiState.value.homeStarterSlots.firstOrNull { it.slotKey == slotKey } ?: return
         val newX = (slot.x + dx).coerceIn(0.08f, 0.92f)
         val newY = (slot.y + dy).coerceIn(0.08f, 0.92f)
         viewModelScope.launch(Dispatchers.IO) {
@@ -581,9 +669,9 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun addSubSlot(side: TeamSide) {
+    fun addSubSlot() {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.addSubSlot(side)
+            repository.addSubSlot(TeamSide.HOME)
         }
     }
 
@@ -609,12 +697,14 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
 
     fun openCreatePlayer(forSlotKey: String? = null) {
         pickerTargetSlotKey.value = null
+        slotActionTargetKey.value = null
         inspectedSlotKey.value = null
         inspectedStandalonePlayerId.value = null
         creatingForSlotKey.value = forSlotKey
         editingPlayerState.value = PlayerEntity(
             name = "",
             nickname = "",
+            abilityNicknames = "",
             nationality = "",
             flagEmoji = "",
             club = "Real Madrid",
@@ -658,18 +748,89 @@ class FifCardViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun openCoachEditor(side: TeamSide) {
-        editingCoachSide.value = side
+    // Manager / Coach Actions
+    fun onPitchCoachTapped() {
+        showManagerPitchActions.value = true
+    }
+
+    fun closeManagerPitchActions() {
+        showManagerPitchActions.value = false
+    }
+
+    fun openManagerPicker() {
+        showManagerPitchActions.value = false
+        showManagerPickerSheet.value = true
+    }
+
+    fun closeManagerPicker() {
+        showManagerPickerSheet.value = false
+    }
+
+    fun assignCoachToPitch(coachId: Long) {
+        showManagerPickerSheet.value = false
+        showManagerPitchActions.value = false
+        inspectedManagerId.value = null
+        viewModelScope.launch {
+            prefsRepo.setActiveCoachId(coachId)
+        }
+    }
+
+    fun openManagerDetail(coach: CoachEntity) {
+        inspectedManagerId.value = coach.id
+    }
+
+    fun closeManagerDetail() {
+        inspectedManagerId.value = null
+    }
+
+    fun openCreateManager(assignToPitch: Boolean) {
+        showManagerPitchActions.value = false
+        showManagerPickerSheet.value = false
+        inspectedManagerId.value = null
+        assignCoachToPitchAfterSave.value = assignToPitch
+        editingCoachState.value = CoachEntity(
+            id = 0L,
+            name = "",
+            nationality = "",
+            flagEmoji = "",
+            customImageUri = null,
+            isBuiltIn = false
+        )
+    }
+
+    fun openEditManager(coach: CoachEntity, assignToPitch: Boolean = false) {
+        showManagerPitchActions.value = false
+        inspectedManagerId.value = null
+        assignCoachToPitchAfterSave.value = assignToPitch
+        editingCoachState.value = coach
     }
 
     fun closeCoachEditor() {
-        editingCoachSide.value = null
+        editingCoachState.value = null
+        assignCoachToPitchAfterSave.value = false
     }
 
     fun saveCoach(coach: CoachEntity) {
-        editingCoachSide.value = null
+        val assignNow = assignCoachToPitchAfterSave.value
+        editingCoachState.value = null
+        assignCoachToPitchAfterSave.value = false
         viewModelScope.launch(Dispatchers.IO) {
-            repository.saveCoach(coach)
+            val savedId = repository.saveCoach(coach)
+            if (assignNow) {
+                prefsRepo.setActiveCoachId(savedId)
+            }
+        }
+    }
+
+    fun deleteCustomCoach(coachId: Long) {
+        inspectedManagerId.value = null
+        editingCoachState.value = null
+        viewModelScope.launch(Dispatchers.IO) {
+            val wasActive = uiState.value.activeCoach.id == coachId
+            repository.deleteCustomCoach(coachId)
+            if (wasActive) {
+                prefsRepo.setActiveCoachId(0L)
+            }
         }
     }
 

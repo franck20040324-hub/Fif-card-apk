@@ -619,3 +619,76 @@ data class LocalTrack(
     val title: String,
     val uriString: String
 )
+
+enum class ManagerSortOption {
+    NAME_ASC,
+    NAME_DESC,
+    NATIONALITY
+}
+
+data class AbilityNickname(
+    val id: String,
+    val nameEn: String,
+    val nameAr: String,
+    val line: PlayingLine? = null
+)
+
+object AbilityNicknameCatalog {
+    val all: List<AbilityNickname> = listOf(
+        // Goalkeeping
+        AbilityNickname("sweeper_keeper", "Sweeper Keeper", "حارس قشاش", PlayingLine.GK),
+        AbilityNickname("shot_stopper", "Shot Stopper", "صائد التسديدات", PlayingLine.GK),
+        AbilityNickname("penalty_saver", "Penalty Saver", "متخصص ركلات الجزاء", PlayingLine.GK),
+        AbilityNickname("commanding_gk", "Commanding GK", "حارس قائد للمنطقة", PlayingLine.GK),
+        AbilityNickname("long_thrower", "Long Thrower", "رميات طويلة", PlayingLine.GK),
+
+        // Defending
+        AbilityNickname("ball_playing_cb", "Ball-Playing CB", "مدافع صانع لعب", PlayingLine.DEF),
+        AbilityNickname("stopper", "Stopper", "مدافع قاطع كرات", PlayingLine.DEF),
+        AbilityNickname("libero", "Libero", "ليبرو حر", PlayingLine.DEF),
+        AbilityNickname("aerial_fortress", "Aerial Fortress", "حصن جوي", PlayingLine.DEF),
+        AbilityNickname("slide_tackle_master", "Slide Tackle Master", "متخصص افتكاك منزلق", PlayingLine.DEF),
+        AbilityNickname("wingback_engine", "Wingback Engine", "ظهير طائر لا يهدأ", PlayingLine.DEF),
+        AbilityNickname("inverted_fullback", "Inverted Fullback", "ظهير عكسي للوسط", PlayingLine.DEF),
+        AbilityNickname("no_nonsense_def", "Wall Defender", "صخرة دفاعية", PlayingLine.DEF),
+
+        // Midfield
+        AbilityNickname("playmaker", "Playmaker", "صانع ألعاب", PlayingLine.MID),
+        AbilityNickname("deep_lying_playmaker", "Deep-Lying Playmaker", "صانع ألعاب متأخر", PlayingLine.MID),
+        AbilityNickname("regista", "Regista", "ريجيستا موجه اللعب", PlayingLine.MID),
+        AbilityNickname("box_to_box", "Box-to-Box", "محور شامل", PlayingLine.MID),
+        AbilityNickname("mezzala", "Mezzala", "ميتزالا مائل للطرف", PlayingLine.MID),
+        AbilityNickname("anchor_man", "Anchor Man", "ارتكاز دفاعي ثابت", PlayingLine.MID),
+        AbilityNickname("destroyer", "Destroyer", "قاطع هجمات شرس", PlayingLine.MID),
+        AbilityNickname("trequartista", "Trequartista", "تريكوارتيستا خلف المهاجمين", PlayingLine.MID),
+        AbilityNickname("press_resistant", "Press Resistant", "مقاوم للضغط", PlayingLine.MID),
+        AbilityNickname("maestro", "Maestro", "مايسترو الوسط", PlayingLine.MID),
+        AbilityNickname("long_ball_expert", "Long Ball Expert", "متقن الكرات الطويلة", PlayingLine.MID),
+
+        // Attacking & General
+        AbilityNickname("clinical_finisher", "Clinical Finisher", "قناص حاسم", PlayingLine.ATT),
+        AbilityNickname("poacher", "Poacher", "ثعلب منطقة الجزاء", PlayingLine.ATT),
+        AbilityNickname("target_man", "Target Man", "مهاجم محطة", PlayingLine.ATT),
+        AbilityNickname("false_9", "False 9", "مهاجم وهمي", PlayingLine.ATT),
+        AbilityNickname("inverted_winger", "Inverted Winger", "جناح عكسي", PlayingLine.ATT),
+        AbilityNickname("speedster", "Speedster", "نفاثة سريعة", PlayingLine.ATT),
+        AbilityNickname("dribbler_1v1", "1v1 Dribbler", "مراوغ 1 ضد 1", PlayingLine.ATT),
+        AbilityNickname("free_kick_spec", "Free Kick Specialist", "متخصص الركلات الحرة", null),
+        AbilityNickname("cross_spec", "Cross Specialist", "متقن العرضيات", null),
+        AbilityNickname("long_shot_taker", "Long Shot Taker", "مسدد بعيد المدى", null),
+        AbilityNickname("shadow_striker", "Shadow Striker", "مهاجم متخفي", PlayingLine.ATT),
+        AbilityNickname("outside_boot", "Outside Boot", "تمرير وتسديد بالوجه الخارجي", null),
+        AbilityNickname("super_sub", "Super Sub", "بديل حاسم", null),
+        AbilityNickname("captain_leader", "Captain Leader", "قائد داخل الملعب", null)
+    )
+
+    fun displayName(raw: String, language: AppLanguage): String {
+        val match = all.firstOrNull {
+            it.id.equals(raw, ignoreCase = true) ||
+                it.nameEn.equals(raw, ignoreCase = true) ||
+                it.nameAr.equals(raw, ignoreCase = true)
+        } ?: return raw
+        return if (language == AppLanguage.ARABIC) match.nameAr else match.nameEn
+    }
+}
+

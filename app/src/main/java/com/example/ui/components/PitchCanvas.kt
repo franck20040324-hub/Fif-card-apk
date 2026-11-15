@@ -13,7 +13,6 @@ import com.example.model.PitchTheme
 @Composable
 fun FootballPitchCanvas(
     pitchTheme: PitchTheme,
-    isMatchMode: Boolean,
     modifier: Modifier = Modifier
 ) {
     Canvas(modifier = modifier.fillMaxSize()) {
@@ -24,7 +23,7 @@ fun FootballPitchCanvas(
         drawRect(color = pitchTheme.baseColor, size = size)
 
         // Lightweight horizontal mow stripes (low overdraw, crisp on Adreno 610)
-        val stripeCount = if (isMatchMode) 12 else 8
+        val stripeCount = 10
         val stripeH = h / stripeCount
         for (i in 0 until stripeCount) {
             if (i % 2 == 1) {

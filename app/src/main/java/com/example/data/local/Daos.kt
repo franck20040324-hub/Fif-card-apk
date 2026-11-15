@@ -57,7 +57,7 @@ interface LineupDao {
     @Query("UPDATE lineup_slots SET playerId = NULL WHERE playerId = :playerId")
     suspend fun clearPlayerFromAllSlots(playerId: Long)
 
-    @Query("UPDATE lineup_slots SET customX = NULL, customY = NULL WHERE teamSide = :teamSide AND isStarter = 1")
+    @Query("UPDATE lineup_slots SET customX = NULL, customY = NULL, customPosition = NULL WHERE teamSide = :teamSide AND isStarter = 1")
     suspend fun clearCustomPositionsForTeam(teamSide: String)
 }
 
@@ -75,17 +75,23 @@ interface SavedFormationDao {
 
 @Dao
 interface CoachDao {
-    @Query("SELECT * FROM coaches")
+    @Query("SELECT * FROM coaches ORDER BY isBuiltIn ASC, id ASC")
     fun observeCoaches(): Flow<List<CoachEntity>>
 
     @Query("SELECT COUNT(*) FROM coaches")
     suspend fun countCoaches(): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertCoach(coach: CoachEntity)
+    suspend fun insertCoach(coach: CoachEntity): Long
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertCoaches(coaches: List<CoachEntity>)
+    suspend fun insertCoaches(coaches: List<CoachEntity>): List<Long>
+
+    @Update
+    suspend fun updateCoach(coach: CoachEntity)
+
+    @Query("DELETE FROM coaches WHERE id = :id AND isBuiltIn = 0")
+    suspend fun deleteCustomCoach(id: Long)
 }
 
 @Dao

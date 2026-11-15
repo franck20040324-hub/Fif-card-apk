@@ -8,6 +8,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -18,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -37,12 +40,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -51,6 +56,8 @@ import com.example.R
 import com.example.data.local.CoachEntity
 import com.example.data.local.PlayerEntity
 import com.example.i18n.LocalAppStrings
+import com.example.model.AbilityNicknameCatalog
+import com.example.model.AppLanguage
 import com.example.model.AvatarGender
 import com.example.model.ClubCatalog
 import com.example.model.PlayingLine
@@ -249,10 +256,10 @@ fun VerticalPitchPlayerCard(
                 .weight(1f),
             horizontalArrangement = Arrangement.spacedBy(if (compact) 1.5.dp else 2.5.dp)
         ) {
-            // Left tactical column: Power + Main Position + Role Icon + Extra Positions
+            // Left tactical column: Power + Main Position + Role Icon + Up to 5 Secondary Positions
             Column(
                 modifier = Modifier
-                    .width(cardWidth * 0.34f)
+                    .width(cardWidth * 0.36f)
                     .fillMaxHeight(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Top
@@ -262,24 +269,24 @@ fun VerticalPitchPlayerCard(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(4.dp))
                         .background(if (isTeamAwayBadge) Color(0xFF0F172A) else lineColor)
-                        .padding(vertical = 1.dp),
+                        .padding(vertical = 0.5.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = effectivePower.toString(),
                         color = if (isTeamAwayBadge || slotPosition.line != PlayingLine.MID) Color.White else Color.Black,
-                        fontSize = if (compact) 8.sp else 9.5.sp,
+                        fontSize = if (compact) 7.5.sp else 9.sp,
                         fontWeight = FontWeight.ExtraBold,
                         maxLines = 1
                     )
                 }
 
-                Spacer(modifier = Modifier.height(1.5.dp))
+                Spacer(modifier = Modifier.height(1.dp))
 
                 Text(
                     text = player.mainPosition,
                     color = cs.onSurface,
-                    fontSize = if (compact) 6.5.sp else 7.5.sp,
+                    fontSize = if (compact) 6.sp else 7.sp,
                     fontWeight = FontWeight.ExtraBold,
                     maxLines = 1
                 )
@@ -287,27 +294,36 @@ fun VerticalPitchPlayerCard(
                 PositionRoleLogo(
                     line = slotPosition.line,
                     tint = lineColor,
-                    size = if (compact) 7.dp else 9.dp
+                    size = if (compact) 6.5.dp else 8.dp
                 )
 
-                if (player.extraPositionList.isNotEmpty() && !compact) {
-                    Spacer(modifier = Modifier.height(1.5.dp))
-                    player.extraPositionList.take(2).forEach { extra ->
-                        Box(
-                            modifier = Modifier
-                                .padding(top = 1.dp)
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(cs.surfaceVariant)
-                                .border(0.6.dp, extra.line.color, RoundedCornerShape(3.dp))
-                                .padding(horizontal = 2.dp, vertical = 0.5.dp)
+                val extras = player.extraPositionList.take(5)
+                if (extras.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(1.dp))
+                    extras.chunked(2).forEach { pair ->
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(1.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(top = 0.8.dp)
                         ) {
-                            Text(
-                                text = extra.code,
-                                color = cs.onSurface,
-                                fontSize = 5.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1
-                            )
+                            pair.forEach { extra ->
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(cs.surfaceVariant)
+                                        .border(0.5.dp, extra.line.color, RoundedCornerShape(2.dp))
+                                        .padding(horizontal = 1.5.dp)
+                                ) {
+                                    Text(
+                                        text = extra.code,
+                                        color = cs.onSurface,
+                                        fontSize = if (compact) 4.2.sp else 4.8.sp,
+                                        lineHeight = if (compact) 5.sp else 5.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -406,7 +422,7 @@ fun EmptyPitchSlot(
 }
 
 /**
- * Coach Card placed on bottom-left of formation; only Name, Nationality & photo customizable.
+ * Compact Manager Card placed on bottom-left of formation pitch.
  */
 @Composable
 fun CoachPitchCard(
@@ -417,38 +433,42 @@ fun CoachPitchCard(
     val strings = LocalAppStrings.current
     val cs = MaterialTheme.colorScheme
     Surface(
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(8.dp),
         color = cs.surface.copy(alpha = 0.94f),
         modifier = modifier
-            .clip(RoundedCornerShape(10.dp))
-            .border(1.5.dp, FifOrange, RoundedCornerShape(10.dp))
+            .widthIn(max = 104.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .border(1.2.dp, FifOrange, RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .testTag("coach_card_${coach.teamSide}")
+            .testTag("coach_pitch_card")
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp),
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             CoachPortrait(
                 customImageUri = coach.customImageUri,
                 contentDescription = coach.name,
                 modifier = Modifier
-                    .size(32.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .border(1.dp, FifOrange, RoundedCornerShape(6.dp))
+                    .size(width = 20.dp, height = 26.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .border(0.8.dp, FifOrange, RoundedCornerShape(4.dp))
             )
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.width(4.dp))
             Column {
                 Text(
                     text = strings.coach.uppercase(),
                     color = FifOrange,
-                    fontSize = 8.sp,
-                    fontWeight = FontWeight.ExtraBold
+                    fontSize = 6.5.sp,
+                    lineHeight = 7.5.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1
                 )
                 Text(
                     text = coach.name,
                     color = cs.onSurface,
-                    fontSize = 11.sp,
+                    fontSize = 8.5.sp,
+                    lineHeight = 10.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -456,7 +476,8 @@ fun CoachPitchCard(
                 Text(
                     text = coach.nationality,
                     color = cs.onSurfaceVariant,
-                    fontSize = 9.sp,
+                    fontSize = 7.sp,
+                    lineHeight = 8.sp,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -471,6 +492,7 @@ fun CoachPitchCard(
  * Places the portrait as an unobstructed vertical long rectangle in the top-right,
  * with written nationality (no flags).
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun LibraryPlayerCardGrid(
     player: PlayerEntity,
@@ -480,6 +502,7 @@ fun LibraryPlayerCardGrid(
     val strings = LocalAppStrings.current
     val cs = MaterialTheme.colorScheme
     val lineColor = player.mainLine.color
+    val appLang = if (LocalLayoutDirection.current == LayoutDirection.Rtl) AppLanguage.ARABIC else AppLanguage.ENGLISH
 
     Column(
         modifier = modifier
@@ -493,7 +516,7 @@ fun LibraryPlayerCardGrid(
             .testTag("player_grid_card_${player.id}"),
         verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        // Top Area: Tactical Stats/Positions on left + Vertical Long Rectangle Portrait on top right
+        // Top Area: Tactical Stats/Positions (up to 5 secondary) on left + Vertical Long Rectangle Portrait on top right
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -502,7 +525,7 @@ fun LibraryPlayerCardGrid(
         ) {
             Column(
                 modifier = Modifier
-                    .fillMaxWidth(0.35f)
+                    .fillMaxWidth(0.38f)
                     .fillMaxHeight(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.SpaceBetween
@@ -524,37 +547,38 @@ fun LibraryPlayerCardGrid(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(3.dp))
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        PositionRoleLogo(line = player.mainLine, tint = lineColor, size = 12.dp)
+                        PositionRoleLogo(line = player.mainLine, tint = lineColor, size = 11.dp)
                         Spacer(modifier = Modifier.width(2.dp))
                         Text(
                             text = player.mainPosition,
                             color = cs.onSurface,
                             fontWeight = FontWeight.ExtraBold,
-                            fontSize = 11.sp
+                            fontSize = 10.5.sp
                         )
                     }
 
-                    if (player.extraPositionList.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(2.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                    val extras = player.extraPositionList.take(5)
+                    if (extras.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(3.dp))
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterHorizontally),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
-                            player.extraPositionList.forEach { extra ->
+                            extras.forEach { extra ->
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
+                                        .clip(RoundedCornerShape(3.dp))
                                         .background(cs.surfaceVariant)
-                                        .border(1.dp, extra.line.color, RoundedCornerShape(4.dp))
-                                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                                        .border(0.8.dp, extra.line.color, RoundedCornerShape(3.dp))
+                                        .padding(horizontal = 3.dp, vertical = 1.dp)
                                 ) {
                                     Text(
                                         text = extra.code,
                                         color = cs.onSurface,
-                                        fontSize = 8.sp,
+                                        fontSize = 7.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
@@ -591,13 +615,13 @@ fun LibraryPlayerCardGrid(
             )
         }
 
-        // Bottom Card Details: Name, Nickname, Written Nationality, Club & Foot
+        // Bottom Card Details: Name, Nickname, Ability Nicknames, Written Nationality, Club & Foot
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
                 .background(cs.surfaceVariant.copy(alpha = 0.65f))
-                .padding(horizontal = 6.dp, vertical = 5.dp)
+                .padding(horizontal = 6.dp, vertical = 4.dp)
         ) {
             Text(
                 text = player.name,
@@ -606,11 +630,22 @@ fun LibraryPlayerCardGrid(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            if (player.nickname.isNotBlank()) {
+            val subtitleText = buildString {
+                if (player.nickname.isNotBlank()) append("\"${player.nickname}\"")
+                val topAbility = player.abilityNicknameList.firstOrNull()?.let {
+                    AbilityNicknameCatalog.displayName(it, appLang)
+                }
+                if (!topAbility.isNullOrBlank()) {
+                    if (isNotEmpty()) append(" • ")
+                    append(topAbility)
+                }
+            }
+            if (subtitleText.isNotBlank()) {
                 Text(
-                    text = "\"${player.nickname}\"",
+                    text = subtitleText,
                     style = MaterialTheme.typography.labelSmall,
                     color = FifOrange,
+                    fontSize = 9.5.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -660,6 +695,7 @@ fun LibraryPlayerCardGrid(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun LibraryPlayerCardList(
     player: PlayerEntity,
@@ -668,6 +704,7 @@ fun LibraryPlayerCardList(
 ) {
     val cs = MaterialTheme.colorScheme
     val lineColor = player.mainLine.color
+    val appLang = if (LocalLayoutDirection.current == LayoutDirection.Rtl) AppLanguage.ARABIC else AppLanguage.ENGLISH
 
     Row(
         modifier = modifier
@@ -680,7 +717,7 @@ fun LibraryPlayerCardList(
             .testTag("player_list_card_${player.id}"),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Left: Power Badge + Main Position + Info + Written Nationality
+        // Left: Power Badge + Main Position + Up to 5 Secondary Positions + Ability Nicknames + Written Nationality
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
@@ -719,8 +756,11 @@ fun LibraryPlayerCardList(
 
             if (player.extraPositionList.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(3.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    player.extraPositionList.forEach { extra ->
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    player.extraPositionList.take(5).forEach { extra ->
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(3.dp))
@@ -733,6 +773,32 @@ fun LibraryPlayerCardList(
                                 color = cs.onSurface,
                                 fontSize = 8.sp,
                                 fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (player.abilityNicknameList.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(3.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    player.abilityNicknameList.take(3).forEach { raw ->
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(FifOrange.copy(alpha = 0.14f))
+                                .border(0.6.dp, FifOrange.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                        ) {
+                            Text(
+                                text = AbilityNicknameCatalog.displayName(raw, appLang),
+                                color = FifOrange,
+                                fontSize = 8.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
                             )
                         }
                     }
